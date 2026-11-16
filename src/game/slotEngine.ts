@@ -1,26 +1,26 @@
 import { SlotMachineTheme, SlotSymbol } from '../data/machines';
 
 export const PAYLINES: number[][] = [
-  [1, 1, 1, 1, 1], // 1. Midden
-  [0, 0, 0, 0, 0], // 2. Boven
-  [2, 2, 2, 2, 2], // 3. Onder
-  [0, 1, 2, 1, 0], // 4. V
-  [2, 1, 0, 1, 2], // 5. Omgekeerde V
-  [0, 0, 1, 2, 2], // 6. Trap omlaag
-  [2, 2, 1, 0, 0], // 7. Trap omhoog
-  [1, 0, 0, 0, 1], // 8. Dak
-  [1, 2, 2, 2, 1], // 9. Dal
-  [0, 1, 1, 1, 0], // 10. Kom hoog
-  [2, 1, 1, 1, 2], // 11. Kom laag
-  [1, 0, 1, 2, 1], // 12. Zigzag A
-  [1, 2, 1, 0, 1], // 13. Zigzag B
-  [0, 1, 0, 1, 0], // 14. Golf hoog
-  [2, 1, 2, 1, 2], // 15. Golf laag
-  [1, 1, 0, 1, 1], // 16. Piek
-  [1, 1, 2, 1, 1], // 17. Kuil
-  [0, 2, 0, 2, 0], // 18. Dubbele V
-  [2, 0, 2, 0, 2], // 19. Dubbele A
-  [0, 2, 1, 0, 2], // 20. Slinger
+  [1, 1, 1, 1, 1],
+  [0, 0, 0, 0, 0],
+  [2, 2, 2, 2, 2],
+  [0, 1, 2, 1, 0],
+  [2, 1, 0, 1, 2],
+  [0, 0, 1, 2, 2],
+  [2, 2, 1, 0, 0],
+  [1, 0, 0, 0, 1],
+  [1, 2, 2, 2, 1],
+  [0, 1, 1, 1, 0],
+  [2, 1, 1, 1, 2],
+  [1, 0, 1, 2, 1],
+  [1, 2, 1, 0, 1],
+  [0, 1, 0, 1, 0],
+  [2, 1, 2, 1, 2],
+  [1, 1, 0, 1, 1],
+  [1, 1, 2, 1, 1],
+  [0, 2, 0, 2, 0],
+  [2, 0, 2, 0, 2],
+  [0, 2, 1, 0, 2],
 ];
 
 export type WinTier = 'none' | 'win' | 'nice' | 'big' | 'mega' | 'epic';
@@ -41,7 +41,7 @@ export interface HoldCoinCell {
 }
 
 export interface SpinResult {
-  grid: SlotSymbol[][]; // [col 0..4][row 0..2]
+  grid: SlotSymbol[][];
   winningLines: WinningLine[];
   linePayout: number;
   scatterCount: number;
@@ -52,6 +52,7 @@ export interface SpinResult {
   totalWin: number;
   winTier: WinTier;
   xpGain: number;
+  piggyDeposit: number;
 }
 
 function pickWeightedSymbol(symbols: SlotSymbol[], allowSpecial = true): SlotSymbol {
@@ -88,26 +89,22 @@ export function spinReels(params: {
 }): SpinResult {
   const { machine, bet, isFreeSpin, freeSpinMultiplier, kingdomMultiplier, jackpots } = params;
 
-  // Build 5x3 grid
   const grid: SlotSymbol[][] = [];
   for (let col = 0; col < 5; col++) {
     const column: SlotSymbol[] = [];
     for (let row = 0; row < 3; row++) {
-      // Wilds appear mostly on reels 2-5 during normal spins, all reels in free spins
       const allowWild = isFreeSpin || col > 0 || Math.random() < 0.35;
       column.push(pickWeightedSymbol(machine.symbols, allowWild));
     }
     grid.push(column);
   }
 
-  // Evaluate 20 paylines
   const winningLines: WinningLine[] = [];
   let baseLineWin = 0;
-  const lineBet = bet / 10; // balanced base unit across 20 lines
+  const lineBet = bet / 10;
 
   PAYLINES.forEach((rows, lineIndex) => {
     const lineSyms = rows.map((r, c) => grid[c][r]);
-    // Determine target paying symbol (first non-wild that isn't scatter)
     let target: SlotSymbol | null = null;
     for (const s of lineSyms) {
       if (s.tier === 'scatter') {
@@ -119,15 +116,16 @@ export function spinReels(params: {
         break;
       }
     }
-    // If all 5 (or leading) are wilds
     if (!target && lineSyms[0].tier === 'wild') {
       target = lineSyms[0];
     }
     if (!target) return;
 
     let matchCount = 0;
+    let usedWild = false;
     for (const s of lineSyms) {
       if (s.id === target.id || s.tier === 'wild') {
+        if (s.tier === 'wild') usedWild = true;
         matchCount++;
       } else {
         break;
@@ -136,21 +134,15 @@ export function spinReels(params: {
 
     if (matchCount >= 3) {
       const mult = matchCount === 5 ? target.pay5 : matchCount === 4 ? target.pay4 : target.pay3;
-      const payout = Math.round(lineBet * mult);
+      const wildBoost = usedWild && machine.wildMultiplier ? machine.wildMultiplier : 1;
+      const payout = Math.round(lineBet * mult * wildBoost);
       if (payout > 0) {
         baseLineWin += payout;
-        winningLines.push({
-          lineIndex,
-          rows,
-          matchCount,
-          symbol: target,
-          payout,
-        });
+        winningLines.push({ lineIndex, rows, matchCount, symbol: target, payout });
       }
     }
   });
 
-  // Scatter & Coin positions
   let scatterCount = 0;
   const coinPositions: HoldCoinCell[] = [];
 
@@ -159,11 +151,7 @@ export function spinReels(params: {
       const s = grid[c][r];
       if (s.tier === 'scatter') scatterCount++;
       if (s.tier === 'coin') {
-        coinPositions.push({
-          col: c,
-          row: r,
-          value: generateHoldCoinValue(bet),
-        });
+        coinPositions.push({ col: c, row: r, value: generateHoldCoinValue(bet) });
       }
     }
   }
@@ -183,7 +171,6 @@ export function spinReels(params: {
 
   const triggerHoldAndSpin = coinPositions.length >= 5;
 
-  // Occasional progressive jackpot drop (completely transparent & fair)
   let jackpotWon: { key: JackpotKey; amount: number } | null = null;
   const jpRoll = Math.random();
   if (jpRoll < 0.0005) {
@@ -209,6 +196,7 @@ export function spinReels(params: {
   else if (totalWin > 0) winTier = 'win';
 
   const xpGain = Math.max(15, Math.round(25 + Math.log10(Math.max(1, bet)) * 12));
+  const piggyDeposit = Math.max(50_000, Math.round(bet * 0.08));
 
   return {
     grid,
@@ -222,5 +210,6 @@ export function spinReels(params: {
     totalWin,
     winTier,
     xpGain,
+    piggyDeposit,
   };
 }

@@ -1,5 +1,12 @@
-import { CARDS, CardItem, KINGDOM_BUILDINGS, QUEST_TEMPLATES, SLOT_MACHINES } from '../data/machines';
-import { MascotAccessory } from '../game/mascotRenderer';
+import {
+  CARDS,
+  CardItem,
+  KINGDOM_BUILDINGS,
+  QUEST_TEMPLATES,
+  SLOT_MACHINES,
+  STARTER_COINS,
+} from '../data/machines';
+import { CharacterConfig } from '../game/mascotRenderer';
 import { JackpotKey } from '../game/slotEngine';
 
 export interface QuestProgressState {
@@ -9,6 +16,7 @@ export interface QuestProgressState {
 
 export interface GameState {
   coins: number;
+  starterBillionGranted: boolean;
   totalWon: number;
   totalSpins: number;
   xp: number;
@@ -33,17 +41,33 @@ export interface GameState {
   sessionStartAt: number;
   reminderMinutes: number;
   soundEnabled: boolean;
-  mascotAccessory: MascotAccessory;
   rescueCount: number;
+  // New character + clothes shop + all social casino mechanics!
+  character: CharacterConfig;
+  ownedShopItems: string[];
+  piggyBankCoins: number;
+  shields: number;
+  tournamentPoints: number;
+  claimedPassSteps: number[];
 }
 
-const STORAGE_KEY = 'fair_coin_slots_state_v1';
+const STORAGE_KEY = 'fair_coin_slots_state_v2';
 
 export const DEFAULT_JACKPOTS: Record<JackpotKey, number> = {
-  mini: 25_000_000,
-  minor: 150_000_000,
-  major: 950_000_000,
-  grand: 8_500_000_000,
+  mini: 45_000_000,
+  minor: 280_000_000,
+  major: 1_500_000_000,
+  grand: 12_500_000_000,
+};
+
+export const DEFAULT_CHARACTER: CharacterConfig = {
+  species: 'piggy',
+  colorId: 'pink',
+  hatId: 'hat_none',
+  eyewearId: 'eye_none',
+  outfitId: 'out_tee',
+  propId: 'prop_none',
+  auraId: 'aura_none',
 };
 
 export function createInitialState(): GameState {
@@ -58,20 +82,21 @@ export function createInitialState(): GameState {
   });
 
   return {
-    coins: 50_000_000,
+    coins: STARTER_COINS, // 1.500.000.000 startmunten voor iedereen!
+    starterBillionGranted: true,
     totalWon: 0,
     totalSpins: 0,
     xp: 0,
     level: 1,
     activeMachineId: SLOT_MACHINES[0].id,
-    betIndex: 2, // 500K start bet
-    freeSpins: 10,
+    betIndex: 4, // 2.5M default bet (perfect bij 1.5B startmunten)
+    freeSpins: 15,
     freeSpinMultiplier: 2,
     jackpots: { ...DEFAULT_JACKPOTS },
     buildings,
     cards: { c1: 1, c7: 1 },
     claimedSets: [],
-    chests: 2,
+    chests: 3,
     quests,
     lastHalfHourBonusAt: 0,
     lastWheelSpinAt: 0,
@@ -83,26 +108,38 @@ export function createInitialState(): GameState {
     sessionStartAt: Date.now(),
     reminderMinutes: 30,
     soundEnabled: true,
-    mascotAccessory: 'crown',
     rescueCount: 0,
+    character: { ...DEFAULT_CHARACTER },
+    ownedShopItems: ['hat_none', 'eye_none', 'out_tee', 'prop_none', 'aura_none'],
+    piggyBankCoins: 25_000_000,
+    shields: 2,
+    tournamentPoints: 0,
+    claimedPassSteps: [],
   };
 }
 
 export function loadGameState(): GameState {
   const initial = createInitialState();
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('fair_coin_slots_state_v1');
     if (!raw) return initial;
     const parsed = JSON.parse(raw) as Partial<GameState>;
-    return {
+    const merged: GameState = {
       ...initial,
       ...parsed,
       jackpots: { ...DEFAULT_JACKPOTS, ...(parsed.jackpots ?? {}) },
       buildings: { ...initial.buildings, ...(parsed.buildings ?? {}) },
       cards: { ...initial.cards, ...(parsed.cards ?? {}) },
       quests: { ...initial.quests, ...(parsed.quests ?? {}) },
+      character: { ...DEFAULT_CHARACTER, ...(parsed.character ?? {}) },
+      ownedShopItems: Array.from(new Set([...initial.ownedShopItems, ...(parsed.ownedShopItems ?? [])])),
       sessionStartAt: Date.now(),
     };
+    if (!merged.starterBillionGranted) {
+      merged.coins = Math.max(merged.coins, STARTER_COINS);
+      merged.starterBillionGranted = true;
+    }
+    return merged;
   } catch {
     return initial;
   }
@@ -112,7 +149,7 @@ export function saveGameState(state: GameState): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
-    // Ignore quota errors cleanly
+    // Ignore storage quota errors
   }
 }
 
@@ -142,7 +179,7 @@ export function grantXp(state: GameState, amount: number): { leveledUp: boolean;
     state.xp -= xpNeededForLevel(state.level);
     state.level += 1;
     leveledUp = true;
-    const bonus = state.level * 15_000_000 * (state.fairPassActive ? 2 : 1);
+    const bonus = state.level * 30_000_000 * (state.fairPassActive ? 2 : 1);
     levelReward += bonus;
     state.coins += bonus;
     state.chests += 1;
@@ -152,7 +189,7 @@ export function grantXp(state: GameState, amount: number): { leveledUp: boolean;
 
 export function incrementQuest(
   state: GameState,
-  metric: 'spins' | 'wins' | 'coinsWon' | 'holdAndSpin' | 'upgrades' | 'wheel',
+  metric: 'spins' | 'wins' | 'coinsWon' | 'holdAndSpin' | 'upgrades' | 'wheel' | 'arcade',
   amount = 1
 ): void {
   QUEST_TEMPLATES.forEach((q) => {
@@ -169,7 +206,6 @@ export function incrementQuest(
 export function openCardChest(state: GameState): CardItem[] {
   const drawn: CardItem[] = [];
   for (let i = 0; i < 3; i++) {
-    // Fair weighting: players actually complete sets without impossible 0.001% bottlenecks
     const missing = CARDS.filter((c) => !state.cards[c.id]);
     let picked: CardItem;
     if (missing.length > 0 && Math.random() < 0.65) {

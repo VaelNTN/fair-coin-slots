@@ -88,10 +88,10 @@ body {
 }
 
 .coin-pill .coin-val {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 800;
   color: var(--gold);
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
 }
 
@@ -184,6 +184,36 @@ body {
   display: flex;
 }
 
+/* Sub-tabs strip */
+.subtab-strip {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+.subtab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.subtab-btn {
+  flex-shrink: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.subtab-btn.active {
+  background: linear-gradient(135deg, #ffd166, #ff9f1c);
+  color: #260f00;
+  border-color: #fff3b0;
+}
+
 /* Machine selector strip */
 .machine-strip {
   display: flex;
@@ -256,6 +286,25 @@ body {
   font-size: 12px;
   font-weight: 900;
   color: var(--gold);
+}
+
+/* Quick Slot Feature Bar (Piggy + Gamble) */
+.slot-quick-bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.piggy-pill {
+  border: 1.5px solid #ff70a6;
+  background: linear-gradient(135deg, rgba(255, 93, 143, 0.24), rgba(114, 9, 183, 0.3));
+  color: #fff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 /* Slot Machine Cabinet */
@@ -357,6 +406,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   padding: 5px 10px;
   text-align: center;
   font-size: 13px;
@@ -367,7 +417,7 @@ body {
 .win-banner.big {
   background: linear-gradient(90deg, #9b5de5, #f15bb5, #fee440);
   color: #1a072d;
-  font-size: 15px;
+  font-size: 14px;
   box-shadow: 0 0 16px rgba(254, 228, 64, 0.55);
 }
 
@@ -458,7 +508,7 @@ body {
   box-shadow: 0 5px 0 #6a044d, 0 8px 18px rgba(247, 37, 133, 0.45);
 }
 
-/* Info Cards for other tabs */
+/* Info Cards */
 .card {
   background: var(--bg-card);
   border: 1.5px solid rgba(255, 255, 255, 0.12);
@@ -504,6 +554,11 @@ body {
   color: #041d15;
 }
 
+.action-btn.pink {
+  background: linear-gradient(135deg, #ff70a6, #b5179e);
+  color: #fff;
+}
+
 .action-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -520,9 +575,9 @@ body {
 }
 
 .building-icon {
-  font-size: 30px;
-  width: 46px;
-  height: 46px;
+  font-size: 28px;
+  width: 44px;
+  height: 44px;
   border-radius: 12px;
   background: rgba(255, 209, 102, 0.14);
   display: flex;
@@ -542,6 +597,103 @@ body {
 .building-info small {
   color: var(--text-muted);
   font-size: 11px;
+}
+
+/* Character Studio & Clothing Shop */
+.char-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 18px;
+  background: radial-gradient(circle at top, #4b1d8c, #1c0b3a);
+  border: 2px solid var(--gold);
+}
+
+.swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: center;
+}
+
+.color-swatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 2.5px solid rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+}
+
+.color-swatch.active {
+  border-color: #fff;
+  box-shadow: 0 0 10px #ffd166;
+  transform: scale(1.12);
+}
+
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.shop-item {
+  border-radius: 14px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 5px;
+}
+
+.shop-item.equipped {
+  border-color: var(--green);
+  background: rgba(6, 214, 160, 0.16);
+}
+
+.shop-item .s-emoji {
+  font-size: 28px;
+}
+
+.shop-item .s-name {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.shop-item .s-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Scratch Card & Raid Grids */
+.scratch-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.scratch-tile {
+  height: 68px;
+  border-radius: 14px;
+  border: 2px solid var(--gold);
+  background: linear-gradient(135deg, #9b5de5, #f15bb5);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.scratch-tile.revealed {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #06d6a0;
 }
 
 /* Wheel */
@@ -634,7 +786,7 @@ body {
   color: var(--gold);
 }
 
-/* Modal overlay for Hold & Spin / Chests / Level-up */
+/* Modal overlay */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -735,4 +887,6 @@ body {
   font-weight: 700;
   z-index: 60;
   pointer-events: none;
+  text-align: center;
+  max-width: 90%;
 }
