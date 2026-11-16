@@ -1,5 +1,10 @@
 import './style.css';
 import {
+  fetchGlobalSlotsHighscores,
+  GlobalSlotsEntry,
+  submitGlobalSlotsScore,
+} from './api/highscores';
+import {
   BET_STEPS,
   CARDS,
   CARD_SETS,
@@ -37,6 +42,7 @@ import {
   incrementQuest,
   loadGameState,
   openCardChest,
+  resolveDeviceId,
   saveGameState,
   xpNeededForLevel,
 } from './storage/state';
@@ -74,6 +80,10 @@ class FairCoinSlotsApp {
   private isLuckWheelSpin = false;
   private toastTimer = 0;
   private sessionAlertShown = false;
+  private syncTimer: number | null = null;
+  private globalEntries: GlobalSlotsEntry[] = [];
+  private globalStatusText = '';
+  private showServerConfig = false;
 
   // Scratch card local board
   private scratchBoard: { emoji: string; coins: number; spins: number; revealed: boolean }[] = [];
@@ -82,9 +92,9 @@ class FairCoinSlotsApp {
   private raidRevealed: boolean[] = [false, false, false, false];
   private raidValues: number[] = [];
 
-  constructor(root: HTMLElement) {
+  constructor(root: HTMLElement, initialState: GameState) {
     this.root = root;
-    this.state = loadGameState();
+    this.state = initialState;
     this.sfx.enabled = this.state.soundEnabled;
 
     const machine = this.getActiveMachine();
@@ -96,6 +106,27 @@ class FairCoinSlotsApp {
     this.initHudCharacter();
     this.renderAll();
     this.startSessionTicker();
+  }
+
+  private scheduleGlobalSync(delayMs = 2500): void {
+    if (!this.state.apiBaseUrl) return;
+    if (this.syncTimer !== null) {
+      window.clearTimeout(this.syncTimer);
+    }
+    this.syncTimer = window.setTimeout(() => {
+      this.syncTimer = null;
+      void submitGlobalSlotsScore(this.state.apiBaseUrl, {
+        deviceId: this.state.deviceId,
+        playerName: this.state.playerName,
+        level: this.state.level,
+        coins: this.state.coins,
+        totalWon: this.state.totalWon,
+        totalSpins: this.state.totalSpins,
+        tournamentPoints: this.state.tournamentPoints,
+        species: this.state.character.species,
+        colorId: this.state.character.colorId,
+      });
+    }, delayMs);
   }
 
   private getActiveMachine(): SlotMachineTheme {
@@ -635,6 +666,7 @@ class FairCoinSlotsApp {
 
     const xpInfo = grantXp(this.state, result.xpGain);
     saveGameState(this.state);
+    this.scheduleGlobalSync();
 
     let msg = 'Geen winst deze draai — probeer nog eens!';
     let isBig = false;
@@ -1057,6 +1089,7 @@ class FairCoinSlotsApp {
       <div class="char-stage">
         <canvas id="preview-char-canvas" width="180" height="180" style="width:140px;height:140px;"></canvas>
         <div style="font-size:14px;font-weight:900;color:#ffd166;">Jouw Eigen Cartoon Karakter</div>
+        <input id="char-player-name" class="text-input" type="text" maxlength="20" placeholder="Jouw naam voor Highscores" value="${this.state.playerName.replace(/"/g, '&quot;')}" style="max-width:240px;text-align:center;" />
         <div class="subtab-strip" style="justify-content:center;max-width:100%;">
           ${CHARACTER_SPECIES_LIST.map(
             (sp) => `
@@ -1114,6 +1147,12 @@ class FairCoinSlotsApp {
       this.previewCharacter = new MascotRenderer(previewCanvas);
       this.previewCharacter.setConfig(this.state.character);
     }
+
+    panel.querySelector<HTMLInputElement>('#char-player-name')?.addEventListener('input', (ev) => {
+      this.state.playerName = (ev.target as HTMLInputElement).value.trim() || 'Speler';
+      saveGameState(this.state);
+      this.scheduleGlobalSync(1200);
+    });
 
     panel.querySelectorAll<HTMLButtonElement>('[data-species]').forEach((b) => {
       b.addEventListener('click', () => {
@@ -1208,7 +1247,12 @@ class FairCoinSlotsApp {
     const body = panel.querySelector<HTMLElement>('#bonus-body')!;
     if (this.bonusSub === 'wheel') this.renderWheelBody(body);
     else if (this.bonusSub === 'cards') this.renderCardsAndQuestsBody(body);
-    else this.renderPassAndTournamentBody(body);
+    else {
+      this.renderPassAndTournamentBody(body);
+      if (this.state.apiBaseUrl) {
+        void this.refreshGlobalLeaderboard();
+      }
+    }
   }
 
   private renderWheelBody(body: HTMLElement): void {
@@ -1395,14 +1439,65 @@ class FairCoinSlotsApp {
 
   private renderPassAndTournamentBody(body: HTMLElement): void {
     const rivals = [
-      { name: 'Jij (Jouw Karakter)', pts: this.state.tournamentPoints, me: true },
+      { name: `${this.state.playerName} (Jij)`, pts: this.state.tournamentPoints, me: true },
       { name: 'Benni Beer 🐻', pts: 640, me: false },
       { name: 'Kiki Kat 🐱', pts: 410, me: false },
       { name: 'Kapitein Aap 🐒', pts: 230, me: false },
       { name: 'Robo-7 🤖', pts: 120, me: false },
     ].sort((a, b) => b.pts - a.pts);
 
+    const speciesEmoji = (sp: string) =>
+      CHARACTER_SPECIES_LIST.find((x) => x.id === sp)?.emoji || '🐷';
+
+    const statusLabel =
+      this.globalStatusText ||
+      (this.state.apiBaseUrl
+        ? 'Tik Vernieuw om wereldwijde highscores te laden.'
+        : 'Geen server ingesteld (tik Server om Worker URL in te vullen).');
+
     body.innerHTML = `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <h2>🌐 Wereldwijde Highscores</h2>
+          <div style="display:flex;gap:6px;">
+            <button class="action-btn secondary" id="btn-slots-server" style="padding:6px 10px;font-size:11px;">Server</button>
+            <button class="action-btn" id="btn-slots-refresh" style="padding:6px 10px;font-size:11px;">Vernieuw</button>
+          </div>
+        </div>
+        <div class="hs-status-bar">
+          <span>${statusLabel}</span>
+        </div>
+        <div class="hs-config-panel ${this.showServerConfig ? '' : 'hidden'}" id="slots-config-panel">
+          <p style="margin:0;font-size:11px;color:#c7b8e8;">
+            Vul de URL van je gedeelde Arcade Highscores Worker in om scores met andere telefoons te delen.
+          </p>
+          <div style="display:flex;gap:6px;">
+            <input id="slots-api-input" class="text-input" type="url" placeholder="https://arcade-highscores-api.workers.dev" value="${this.state.apiBaseUrl.replace(/"/g, '&quot;')}" />
+            <button class="action-btn green" id="btn-slots-save-api">Opslaan</button>
+          </div>
+        </div>
+        ${
+          this.globalEntries.length > 0
+            ? this.globalEntries
+                .map((e) => {
+                  const isMe = e.deviceId === this.state.deviceId;
+                  return `
+                    <div class="building-row" style="${isMe ? 'border-color:#ffd166;background:rgba(255,209,102,0.14);' : ''}">
+                      <div style="font-weight:900;width:28px;">#${e.rank}</div>
+                      <div style="font-size:20px;">${speciesEmoji(e.species)}</div>
+                      <div class="building-info">
+                        <strong>${e.playerName}${isMe ? ' (Jij)' : ''}</strong>
+                        <small>LVL ${e.level} • ${e.totalSpins} spins</small>
+                      </div>
+                      <strong style="color:#ffd166;">🪙 ${formatCoins(e.totalWon)}</strong>
+                    </div>
+                  `;
+                })
+                .join('')
+            : `<p style="font-size:12px;">Jouw score om te delen: <b>🪙 ${formatCoins(this.state.totalWon)}</b> gewonnen (Level ${this.state.level}).</p>`
+        }
+      </div>
+
       <div class="card">
         <h2>🎟️ Gratis Seizoenspas (Geen €19,99 paywall!)</h2>
         <p>Verdien beloningen gewoon door te spinnen — helemaal gratis ontgrendeld!</p>
@@ -1440,6 +1535,27 @@ class FairCoinSlotsApp {
       </div>
     `;
 
+    body.querySelector('#btn-slots-server')?.addEventListener('click', () => {
+      this.showServerConfig = !this.showServerConfig;
+      this.sfx.playTap();
+      this.renderPassAndTournamentBody(body);
+    });
+
+    body.querySelector('#btn-slots-refresh')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      void this.refreshGlobalLeaderboard();
+    });
+
+    body.querySelector('#btn-slots-save-api')?.addEventListener('click', () => {
+      const inp = body.querySelector<HTMLInputElement>('#slots-api-input');
+      if (!inp) return;
+      this.state.apiBaseUrl = inp.value.trim().replace(/\/+$/, '');
+      saveGameState(this.state);
+      this.showServerConfig = false;
+      this.sfx.playTap();
+      void this.refreshGlobalLeaderboard();
+    });
+
     body.querySelectorAll<HTMLButtonElement>('[data-pass]').forEach((b) => {
       b.addEventListener('click', () => {
         const stepNum = Number(b.dataset.pass);
@@ -1456,6 +1572,42 @@ class FairCoinSlotsApp {
         this.renderAll();
       });
     });
+  }
+
+  private async refreshGlobalLeaderboard(): Promise<void> {
+    if (!this.state.apiBaseUrl) {
+      this.globalEntries = [];
+      this.globalStatusText = 'Geen server ingesteld (tik Server om Worker URL in te vullen).';
+      if (this.activeTab === 'bonuses' && this.bonusSub === 'pass') {
+        const body = this.root.querySelector<HTMLElement>('#bonus-body');
+        if (body) this.renderPassAndTournamentBody(body);
+      }
+      return;
+    }
+
+    this.globalStatusText = 'Wereldwijde scores laden...';
+    try {
+      await submitGlobalSlotsScore(this.state.apiBaseUrl, {
+        deviceId: this.state.deviceId,
+        playerName: this.state.playerName,
+        level: this.state.level,
+        coins: this.state.coins,
+        totalWon: this.state.totalWon,
+        totalSpins: this.state.totalSpins,
+        tournamentPoints: this.state.tournamentPoints,
+        species: this.state.character.species,
+        colorId: this.state.character.colorId,
+      });
+      const res = await fetchGlobalSlotsHighscores(this.state.apiBaseUrl, this.state.deviceId, 50);
+      this.globalEntries = res.entries;
+      this.globalStatusText = `Live verbonden • ${res.entries.length} spelers wereldwijd`;
+    } catch {
+      this.globalStatusText = 'Server niet bereikbaar (offline weergave)';
+    }
+    if (this.activeTab === 'bonuses' && this.bonusSub === 'pass') {
+      const body = this.root.querySelector<HTMLElement>('#bonus-body');
+      if (body) this.renderPassAndTournamentBody(body);
+    }
   }
 
   private drawWheelCanvas(): void {
@@ -1807,7 +1959,12 @@ class FairCoinSlotsApp {
   }
 }
 
-const appRoot = document.getElementById('app');
-if (appRoot) {
-  new FairCoinSlotsApp(appRoot);
+async function bootstrap(): Promise<void> {
+  const appRoot = document.getElementById('app');
+  if (!appRoot) return;
+  const deviceId = await resolveDeviceId();
+  const initial = loadGameState(deviceId);
+  new FairCoinSlotsApp(appRoot, initial);
 }
+
+void bootstrap();

@@ -1,3 +1,4 @@
+import { Device } from '@capacitor/device';
 import {
   CARDS,
   CardItem,
@@ -15,6 +16,9 @@ export interface QuestProgressState {
 }
 
 export interface GameState {
+  deviceId: string;
+  playerName: string;
+  apiBaseUrl: string;
   coins: number;
   starterBillionGranted: boolean;
   totalWon: number;
@@ -55,6 +59,34 @@ export interface GameState {
 }
 
 const STORAGE_KEY = 'fair_coin_slots_state_v2';
+const DEVICE_KEY = 'fair_coin_slots_device_id_v1';
+
+function generateFallbackDeviceId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `fcs-${crypto.randomUUID()}`;
+  }
+  return `fcs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export async function resolveDeviceId(): Promise<string> {
+  const cached = localStorage.getItem(DEVICE_KEY);
+  try {
+    const info = await Device.getId();
+    if (info?.identifier && info.identifier.trim().length >= 4) {
+      const id = `phone-${info.identifier.trim()}`;
+      localStorage.setItem(DEVICE_KEY, id);
+      return id;
+    }
+  } catch {
+    // Web fallback
+  }
+  if (cached && cached.trim().length >= 4) {
+    return cached;
+  }
+  const fresh = generateFallbackDeviceId();
+  localStorage.setItem(DEVICE_KEY, fresh);
+  return fresh;
+}
 
 export const DEFAULT_JACKPOTS: Record<JackpotKey, number> = {
   mini: 45_000_000,
@@ -73,7 +105,11 @@ export const DEFAULT_CHARACTER: CharacterConfig = {
   auraId: 'aura_none',
 };
 
-export function createInitialState(): GameState {
+export function createInitialState(deviceId = generateFallbackDeviceId()): GameState {
+  const defaultApi = ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_URL || '')
+    .trim()
+    .replace(/\/+$/, '');
+
   const buildings: Record<string, number> = {};
   KINGDOM_BUILDINGS.forEach((b) => {
     buildings[b.id] = 1;
@@ -85,6 +121,9 @@ export function createInitialState(): GameState {
   });
 
   return {
+    deviceId,
+    playerName: 'Speler',
+    apiBaseUrl: defaultApi,
     coins: STARTER_COINS, // 1.500.000.000 startmunten voor iedereen!
     starterBillionGranted: true,
     totalWon: 0,
@@ -124,8 +163,8 @@ export function createInitialState(): GameState {
   };
 }
 
-export function loadGameState(): GameState {
-  const initial = createInitialState();
+export function loadGameState(deviceId?: string): GameState {
+  const initial = createInitialState(deviceId);
   try {
     const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('fair_coin_slots_state_v1');
     if (!raw) return initial;
@@ -133,6 +172,15 @@ export function loadGameState(): GameState {
     const merged: GameState = {
       ...initial,
       ...parsed,
+      deviceId: deviceId || parsed.deviceId || initial.deviceId,
+      playerName:
+        typeof parsed.playerName === 'string' && parsed.playerName.trim()
+          ? parsed.playerName.trim()
+          : 'Speler',
+      apiBaseUrl:
+        typeof parsed.apiBaseUrl === 'string' && parsed.apiBaseUrl.trim()
+          ? parsed.apiBaseUrl.trim().replace(/\/+$/, '')
+          : initial.apiBaseUrl,
       jackpots: { ...DEFAULT_JACKPOTS, ...(parsed.jackpots ?? {}) },
       buildings: { ...initial.buildings, ...(parsed.buildings ?? {}) },
       cards: { ...initial.cards, ...(parsed.cards ?? {}) },
