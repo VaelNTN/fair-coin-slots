@@ -46,7 +46,6 @@ type ArcadeSubTab = 'dozer' | 'plinko' | 'scratch' | 'village';
 type BonusSubTab = 'wheel' | 'cards' | 'pass';
 
 const HALF_HOUR_MS = 30 * 60 * 1000;
-const WHEEL_COOLDOWN_MS = 10 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 class FairCoinSlotsApp {
@@ -72,6 +71,7 @@ class FairCoinSlotsApp {
 
   private wheelAngle = 0;
   private wheelSpinning = false;
+  private isLuckWheelSpin = false;
   private toastTimer = 0;
   private sessionAlertShown = false;
 
@@ -321,7 +321,7 @@ class FairCoinSlotsApp {
         ${
           this.lastGambleAmount > 0 && !this.isSpinning
             ? `<button class="piggy-pill" style="border-color:#06d6a0;" id="btn-gamble-win">🃏 Verdubbel ${formatCoins(this.lastGambleAmount)}?</button>`
-            : `<span style="font-size:11px;color:#c7b8e8;">🏆 Toernooi: ${this.state.tournamentPoints} ptn</span>`
+            : `<button class="piggy-pill" style="border-color:${this.state.slotsFreePlay ? '#06d6a0' : '#ff9f1c'};" id="btn-toggle-freeplay">${this.state.slotsFreePlay ? '♾️ 0 Kosten: AAN' : '💰 Inzetmodus'}</button>`
         }
       </div>
 
@@ -330,7 +330,7 @@ class FairCoinSlotsApp {
           <span>${machine.badgeEmoji} ${machine.name} • 20 Lijnen ${machine.wildMultiplier ? `• ${machine.wildMultiplier}x WILD` : ''}</span>
           ${
             this.state.freeSpins > 0
-              ? `<span class="freespin-pill">🎟️ ${this.state.freeSpins} GRATIS (${this.state.freeSpinMultiplier}x)</span>`
+              ? `<span class="freespin-pill">🎟️ ${this.state.freeSpins} BONUS (${this.state.freeSpinMultiplier}x)</span>`
               : `<span style="font-size:11px;color:${machine.accent};">5+ 🪙 = Bonusspel!</span>`
           }
         </div>
@@ -358,7 +358,7 @@ class FairCoinSlotsApp {
         </div>
 
         <div class="win-banner ${isBig ? 'big' : ''}" id="win-banner">
-          ${bannerText ?? 'Tik op DRAAI! 3x 🎟️ = Gratis Spins • 5+ 🪙 = Muntengrijper'}
+          ${bannerText ?? 'Gratis & Onbeperkt spinnen! 3x 🎟️ = Bonus Spins • 5+ 🪙 = Muntengrijper'}
         </div>
       </div>
 
@@ -366,7 +366,7 @@ class FairCoinSlotsApp {
         <div class="bet-box">
           <button class="bet-step-btn" id="btn-bet-down">−</button>
           <div class="bet-display">
-            <small>INZET</small>
+            <small>${this.state.slotsFreePlay ? 'WINSTSCHAAL' : 'INZET'}</small>
             <strong>${formatCoins(bet)}</strong>
           </div>
           <button class="bet-step-btn" id="btn-bet-up">+</button>
@@ -375,7 +375,7 @@ class FairCoinSlotsApp {
         <button class="mini-toggle ${this.turboSpin ? 'active' : ''}" id="btn-turbo">⚡</button>
         <button class="mini-toggle ${this.autoSpin ? 'active' : ''}" id="btn-auto">AUTO</button>
         <button class="spin-btn ${this.state.freeSpins > 0 ? 'freespin-mode' : ''}" id="btn-spin">
-          ${this.state.freeSpins > 0 ? `GRATIS (${this.state.freeSpins})` : 'DRAAI'}
+          ${this.state.freeSpins > 0 ? `BONUS (${this.state.freeSpins})` : this.state.slotsFreePlay ? 'GRATIS DRAAI' : 'DRAAI'}
         </button>
       </div>
     `;
@@ -415,6 +415,19 @@ class FairCoinSlotsApp {
     });
 
     panel.querySelector('#btn-gamble-win')?.addEventListener('click', () => this.openGambleModal());
+
+    panel.querySelector('#btn-toggle-freeplay')?.addEventListener('click', () => {
+      if (this.isSpinning) return;
+      this.state.slotsFreePlay = !this.state.slotsFreePlay;
+      this.sfx.playTap();
+      saveGameState(this.state);
+      this.showToast(
+        this.state.slotsFreePlay
+          ? '♾️ Onbeperkt Gratis Spelen AAN (0 kosten per spin!)'
+          : '💰 Klassieke Inzetmodus actief.'
+      );
+      this.renderSlotsTab();
+    });
 
     panel.querySelector('#btn-bet-down')?.addEventListener('click', () => {
       if (this.isSpinning) return;
@@ -506,8 +519,9 @@ class FairCoinSlotsApp {
 
     const bet = BET_STEPS[this.state.betIndex] ?? BET_STEPS[0];
     const usingFreeSpin = this.state.freeSpins > 0;
+    const freePlay = this.state.slotsFreePlay;
 
-    if (!usingFreeSpin && this.state.coins < bet) {
+    if (!usingFreeSpin && !freePlay && this.state.coins < bet) {
       if (this.state.coins < BET_STEPS[0]) {
         this.autoSpin = false;
         this.claimRescueBonus();
@@ -528,7 +542,7 @@ class FairCoinSlotsApp {
     this.sfx.playSpinStart();
 
     if (usingFreeSpin) this.state.freeSpins -= 1;
-    else this.state.coins -= bet;
+    else if (!freePlay) this.state.coins -= bet;
 
     this.state.jackpots.mini += Math.round(bet * 0.015);
     this.state.jackpots.minor += Math.round(bet * 0.025);
@@ -778,24 +792,18 @@ class FairCoinSlotsApp {
   private renderDozer(body: HTMLElement): void {
     body.innerHTML = `
       <div class="card" style="align-items:center;text-align:center;">
-        <h2>🪙 Muntschuiver (Coin Dozer)</h2>
-        <p>Tik op het bord of druk op de knop om een 1M munt te gooien! Duw stapels munten, 💎 diamanten, 🎟️ spins & 🎁 kisten over de rand.</p>
+        <h2>🪙 Muntschuiver (Gratis & Onbeperkt)</h2>
+        <p>Tik op het bord of druk op de knop — gooi onbeperkt gratis munten (0 kosten)! Duw stapels, 💎 diamanten, 🎟️ spins & 🎁 kisten over de rand.</p>
         <canvas id="dozer-canvas" width="300" height="250" style="border-radius:14px;border:2px solid #ffd166;cursor:pointer;max-width:100%;"></canvas>
-        <button class="action-btn" id="btn-dozer-drop">Gooi Munt (1M) of tik op bord!</button>
+        <button class="action-btn" id="btn-dozer-drop">Gooi Gratis Munt (0 kosten)!</button>
       </div>
     `;
 
     const canvas = body.querySelector<HTMLCanvasElement>('#dozer-canvas')!;
     this.dozerCtrl = new CoinDozerController(canvas, {
-      onDropCost: (cost) => {
-        if (this.state.coins < cost) {
-          this.showToast('Te weinig munten — gebruik de gratis Reddingsboei!');
-          return false;
-        }
-        this.state.coins -= cost;
+      onDropCost: () => {
         incrementQuest(this.state, 'arcade', 1);
         saveGameState(this.state);
-        this.renderHud();
         return true;
       },
       onScoreCoins: (c, chests, spins) => {
@@ -824,8 +832,8 @@ class FairCoinSlotsApp {
   private renderPlinko(body: HTMLElement): void {
     body.innerHTML = `
       <div class="card" style="align-items:center;text-align:center;">
-        <h2>🟢 Plinko Ballenval</h2>
-        <p>Laat ballen door de pinnen vallen naar de vermenigvuldigers tot <b>15x</b>!</p>
+        <h2>🟢 Plinko Ballenval (Gratis & Onbeperkt)</h2>
+        <p>Kies je winstschaal en laat onbeperkt ballen vallen bij <b>0 kosten</b> tot <b>15x</b>!</p>
         <div class="subtab-strip" style="justify-content:center;">
           ${[1_000_000, 10_000_000, 50_000_000, 250_000_000]
             .map(
@@ -835,7 +843,7 @@ class FairCoinSlotsApp {
             .join('')}
         </div>
         <canvas id="plinko-canvas" width="300" height="260" style="border-radius:14px;border:2px solid #4cc9f0;max-width:100%;"></canvas>
-        <button class="action-btn green" id="btn-plinko-drop">Laat Bal Vallen (Inzet: ${formatCoins(this.plinkoBet)})</button>
+        <button class="action-btn green" id="btn-plinko-drop">Laat Bal Vallen (0 kosten • Schaal: ${formatCoins(this.plinkoBet)})</button>
       </div>
     `;
 
@@ -867,14 +875,8 @@ class FairCoinSlotsApp {
     );
 
     body.querySelector('#btn-plinko-drop')?.addEventListener('click', () => {
-      if (this.state.coins < this.plinkoBet) {
-        this.showToast('Te weinig munten voor deze Plinko-inzet!');
-        return;
-      }
-      this.state.coins -= this.plinkoBet;
       incrementQuest(this.state, 'arcade', 1);
       saveGameState(this.state);
-      this.renderHud();
       this.plinkoCtrl?.dropBall(this.plinkoBet);
     });
   }
@@ -898,9 +900,9 @@ class FairCoinSlotsApp {
       </div>
 
       <div class="card">
-        <h3>🎲 Hoger / Lager Dobbelen</h3>
-        <p>Gooi 2 dobbelstenen (inzet 20M): gooi 7 of hoger en win <b>45M</b>!</p>
-        <button class="action-btn secondary" id="btn-roll-dice">🎲 Gooi Dobbelstenen (20M → 45M)</button>
+        <h3>🎲 Hoger / Lager Dobbelen (Gratis!)</h3>
+        <p>Gooi onbeperkt 2 dobbelstenen (0 kosten): gooi 7 of hoger en win direct <b>45M munten</b>!</p>
+        <button class="action-btn secondary" id="btn-roll-dice">🎲 Gooi Dobbelstenen (Gratis • 7+ wint 45M)</button>
       </div>
     `;
 
@@ -927,12 +929,6 @@ class FairCoinSlotsApp {
     });
 
     body.querySelector('#btn-roll-dice')?.addEventListener('click', () => {
-      const stake = 20_000_000;
-      if (this.state.coins < stake) {
-        this.showToast('Minimaal 20M munten nodig om te dobbelen.');
-        return;
-      }
-      this.state.coins -= stake;
       const d1 = 1 + Math.floor(Math.random() * 6);
       const d2 = 1 + Math.floor(Math.random() * 6);
       const sum = d1 + d2;
@@ -944,7 +940,7 @@ class FairCoinSlotsApp {
         this.showToast(`🎲 ${d1} + ${d2} = ${sum}! Gewonnen: +45M munten!`);
       } else {
         this.sfx.playReelStop(0);
-        this.showToast(`🎲 ${d1} + ${d2} = ${sum}. Onder 7 — volgende keer beter!`);
+        this.showToast(`🎲 ${d1} + ${d2} = ${sum}. Onder 7 — gooi gratis nog een keer!`);
       }
       saveGameState(this.state);
       this.renderHud();
@@ -1218,8 +1214,8 @@ class FairCoinSlotsApp {
   private renderWheelBody(body: HTMLElement): void {
     const now = Date.now();
     const halfLeft = Math.max(0, HALF_HOUR_MS - (now - this.state.lastHalfHourBonusAt));
-    const wheelLeft = Math.max(0, WHEEL_COOLDOWN_MS - (now - this.state.lastWheelSpinAt));
     const dailyLeft = Math.max(0, DAY_MS - (now - this.state.lastDailyAt));
+    const outOfSpins = this.state.wheelSpins <= 0;
 
     const formatWait = (ms: number) => {
       const s = Math.ceil(ms / 1000);
@@ -1231,10 +1227,21 @@ class FairCoinSlotsApp {
     body.innerHTML = `
       <div class="card wheel-wrap">
         <h2>🎡 Rad van Fortuin</h2>
+        <div style="font-size:13px;font-weight:800;color:${outOfSpins ? '#ff70a6' : '#06d6a0'};text-align:center;">
+          ${
+            outOfSpins
+              ? `😅 Oof, you're out! Try your luck!<br/><span style="font-size:12px;color:#ffd166;">(Spins op — spin gratis met <b>95% kans</b> op nog eens <b>+150 spins</b>!)</span>`
+              : `🎟️ Rad-spins over: <b>${this.state.wheelSpins}</b> (0 kosten, geen wachttijd!)`
+          }
+        </div>
         <div class="wheel-pointer">🔻</div>
         <canvas id="wheel-canvas" width="240" height="240"></canvas>
-        <button class="action-btn" id="btn-spin-wheel" ${wheelLeft > 0 || this.wheelSpinning ? 'disabled' : ''}>
-          ${wheelLeft > 0 ? `Volgende draai over ${formatWait(wheelLeft)}` : 'DRAAI GRATIS AAN HET RAD!'}
+        <button class="action-btn ${outOfSpins ? 'green' : ''}" id="btn-spin-wheel" ${this.wheelSpinning ? 'disabled' : ''}>
+          ${
+            outOfSpins
+              ? '🍀 PROBEER JE GELUK! (Gratis — 95% kans op +150 spins)'
+              : `DRAAI GRATIS! (${this.state.wheelSpins} spins over)`
+          }
         </button>
       </div>
 
@@ -1460,34 +1467,80 @@ class FairCoinSlotsApp {
     const cx = canvas.width / 2;
     const cy = canvas.height / 2;
     const r = cx - 8;
-    const sliceAng = (Math.PI * 2) / WHEEL_SLICES.length;
+    const isLuckMode = this.isLuckWheelSpin || this.state.wheelSpins <= 0;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(this.wheelAngle);
 
-    WHEEL_SLICES.forEach((slice, i) => {
-      const start = i * sliceAng - Math.PI / 2;
-      const end = start + sliceAng;
-      ctx.fillStyle = slice.color;
+    if (isLuckMode) {
+      // 5% Red miss sliver centered at top (-PI/2), 95% Green +150 SPINS!
+      const redHalf = 0.05 * Math.PI; // total 0.10 * PI = 5% of 2*PI
+      const topAng = -Math.PI / 2;
+
+      // 95% Green slice
+      ctx.fillStyle = '#06d6a0';
       ctx.beginPath();
       ctx.moveTo(0, 0);
-      ctx.arc(0, 0, r, start, end);
+      ctx.arc(0, 0, r, topAng + redHalf, topAng + Math.PI * 2 - redHalf);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      // 5% Red sliver
+      ctx.fillStyle = '#e63946';
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, r, topAng - redHalf, topAng + redHalf);
       ctx.closePath();
       ctx.fill();
       ctx.strokeStyle = '#ffd166';
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      ctx.save();
-      ctx.rotate(start + sliceAng / 2);
-      ctx.fillStyle = '#ffffff';
+      // Labels
+      ctx.fillStyle = '#041f18';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🍀 +150 SPINS!', 0, 38);
       ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('95% KANS', 0, 58);
+
+      ctx.save();
+      ctx.rotate(topAng);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 10px sans-serif';
       ctx.textAlign = 'right';
-      ctx.fillText(`${slice.emoji} ${slice.label}`, r - 12, 4);
+      ctx.fillText('5%', r - 10, 3);
       ctx.restore();
-    });
+    } else {
+      const sliceAng = (Math.PI * 2) / WHEEL_SLICES.length;
+      WHEEL_SLICES.forEach((slice, i) => {
+        const start = i * sliceAng - Math.PI / 2;
+        const end = start + sliceAng;
+        ctx.fillStyle = slice.color;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, r, start, end);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#ffd166';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.save();
+        ctx.rotate(start + sliceAng / 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${slice.emoji} ${slice.label}`, r - 12, 4);
+        ctx.restore();
+      });
+    }
 
     ctx.fillStyle = '#ffd166';
     ctx.beginPath();
@@ -1497,20 +1550,46 @@ class FairCoinSlotsApp {
     ctx.font = 'bold 13px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('★', 0, 1);
+    ctx.fillText(isLuckMode ? '🍀' : '★', 0, 1);
     ctx.restore();
   }
 
   private spinFortuneWheel(): void {
     if (this.wheelSpinning) return;
     this.wheelSpinning = true;
-    const chosenIdx = Math.floor(Math.random() * WHEEL_SLICES.length);
+
+    const btn = this.root.querySelector<HTMLButtonElement>('#btn-spin-wheel');
+    if (btn) btn.disabled = true;
+
+    const luckTry = this.state.wheelSpins <= 0;
+    this.isLuckWheelSpin = luckTry;
+
+    if (!luckTry) {
+      this.state.wheelSpins = Math.max(0, this.state.wheelSpins - 1);
+      saveGameState(this.state);
+    }
+
     const sliceAng = (Math.PI * 2) / WHEEL_SLICES.length;
-    const targetMod = (Math.PI * 2 - (chosenIdx + 0.5) * sliceAng) % (Math.PI * 2);
+    const chosenIdx = Math.floor(Math.random() * WHEEL_SLICES.length);
+    const luckWon = luckTry ? Math.random() < 0.95 : false;
+
+    let targetMod: number;
+    if (luckTry) {
+      if (luckWon) {
+        // Land safely inside the 95% green zone (0.25*PI .. 1.75*PI)
+        targetMod = (0.25 + Math.random() * 1.5) * Math.PI;
+      } else {
+        // Land inside the 5% red sliver (-0.025*PI .. +0.025*PI)
+        targetMod = ((Math.random() - 0.5) * 0.05 * Math.PI + Math.PI * 2) % (Math.PI * 2);
+      }
+    } else {
+      targetMod = (Math.PI * 2 - (chosenIdx + 0.5) * sliceAng) % (Math.PI * 2);
+    }
+
     const startAngle = this.wheelAngle;
     const totalDelta = Math.PI * 10 + ((targetMod - (startAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2));
     const startTime = performance.now();
-    const duration = 2600;
+    const duration = 2400;
     let lastTickSector = -1;
 
     const step = (now: number) => {
@@ -1529,6 +1608,23 @@ class FairCoinSlotsApp {
         requestAnimationFrame(step);
       } else {
         this.wheelSpinning = false;
+        this.isLuckWheelSpin = false;
+
+        if (luckTry) {
+          if (luckWon) {
+            this.state.wheelSpins = 150;
+            this.sfx.playBigWin();
+            this.spawnCoinShower(24);
+            this.showToast('🎉 Gelukt (95%)! Je hebt weer +150 gratis Rad-spins!');
+          } else {
+            this.sfx.playReelStop(0);
+            this.showToast('😅 Oof, net op de 5% mis! Druk gerust opnieuw gratis op Probeer je geluk!');
+          }
+          saveGameState(this.state);
+          this.renderAll();
+          return;
+        }
+
         const win = WHEEL_SLICES[chosenIdx];
         const passBoost = this.state.fairPassActive ? 2 : 1;
         this.state.lastWheelSpinAt = Date.now();
@@ -1539,7 +1635,7 @@ class FairCoinSlotsApp {
           this.showToast(`🎡 Radprijs: +${formatCoins(win.value * passBoost)} munten!`);
         } else if (win.type === 'freespins') {
           this.state.freeSpins += win.value;
-          this.showToast(`🎡 Radprijs: +${win.value} Gratis Spins!`);
+          this.showToast(`🎡 Radprijs: +${win.value} Bonus Spins!`);
         } else if (win.type === 'chest') {
           this.state.chests += win.value;
           this.showToast(`🎡 Radprijs: +${win.value} Schatkisten!`);

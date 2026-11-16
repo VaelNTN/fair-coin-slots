@@ -49,6 +49,9 @@ export interface GameState {
   shields: number;
   tournamentPoints: number;
   claimedPassSteps: number[];
+  wheelSpins: number;
+  wheelSpinsInitialized: boolean;
+  slotsFreePlay: boolean;
 }
 
 const STORAGE_KEY = 'fair_coin_slots_state_v2';
@@ -89,7 +92,7 @@ export function createInitialState(): GameState {
     xp: 0,
     level: 1,
     activeMachineId: SLOT_MACHINES[0].id,
-    betIndex: 4, // 2.5M default bet (perfect bij 1.5B startmunten)
+    betIndex: 4, // 2.5M default scale
     freeSpins: 15,
     freeSpinMultiplier: 2,
     jackpots: { ...DEFAULT_JACKPOTS },
@@ -115,6 +118,9 @@ export function createInitialState(): GameState {
     shields: 2,
     tournamentPoints: 0,
     claimedPassSteps: [],
+    wheelSpins: 150,
+    wheelSpinsInitialized: true,
+    slotsFreePlay: true,
   };
 }
 
@@ -138,6 +144,13 @@ export function loadGameState(): GameState {
     if (!merged.starterBillionGranted) {
       merged.coins = Math.max(merged.coins, STARTER_COINS);
       merged.starterBillionGranted = true;
+    }
+    if (parsed.wheelSpins === undefined) {
+      merged.wheelSpins = 150;
+      merged.wheelSpinsInitialized = true;
+    }
+    if (parsed.slotsFreePlay === undefined) {
+      merged.slotsFreePlay = true;
     }
     return merged;
   } catch {

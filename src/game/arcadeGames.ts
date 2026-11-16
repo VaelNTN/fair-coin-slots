@@ -46,7 +46,7 @@ export class CoinDozerController {
   }
 
   dropCoin(dropXNormalized = 0.5): void {
-    const cost = 1_000_000;
+    const cost = 0;
     if (!this.cb.onDropCost(cost)) return;
     this.cb.playCoin();
     const x = 40 + Math.max(0.08, Math.min(0.92, dropXNormalized)) * 220;
