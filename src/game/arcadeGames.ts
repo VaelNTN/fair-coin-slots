@@ -17,6 +17,9 @@ interface DozerCoin {
 export class CoinDozerController {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
+  private logicalWidth = 300;
+  private logicalHeight = 250;
+  private dpr = 1;
   private rafId = 0;
   private t = 0;
   private coins: DozerCoin[] = [];
@@ -29,8 +32,19 @@ export class CoinDozerController {
     if (!ctx) throw new Error('No 2D context for CoinDozer');
     this.ctx = ctx;
     this.cb = cb;
+    this.setupHiDpi();
     this.seedBoard();
     this.start();
+  }
+
+  private setupHiDpi(): void {
+    this.dpr = Math.min(window.devicePixelRatio || 1, 3);
+    this.canvas.width = Math.round(this.logicalWidth * this.dpr);
+    this.canvas.height = Math.round(this.logicalHeight * this.dpr);
+    this.canvas.style.width = `${this.logicalWidth}px`;
+    this.canvas.style.maxWidth = '100%';
+    this.canvas.style.aspectRatio = `${this.logicalWidth} / ${this.logicalHeight}`;
+    this.canvas.style.height = 'auto';
   }
 
   private seedBoard(): void {
@@ -106,7 +120,7 @@ export class CoinDozerController {
       let wonSpins = 0;
       const kept: DozerCoin[] = [];
       for (const c of this.coins) {
-        c.x = Math.max(26, Math.min(274, c.x));
+        c.x = Math.max(26, Math.min(this.logicalWidth - 26, c.x));
         if (c.y > 234) {
           if (c.kind === 'coin') wonCoins += 2_500_000;
           else if (c.kind === 'gem') wonCoins += 15_000_000;
@@ -140,20 +154,21 @@ export class CoinDozerController {
   }
 
   private draw(pusherY: number): void {
-    const { ctx, canvas } = this;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const { ctx, logicalWidth: w, logicalHeight: h, dpr } = this;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
 
     // Table surface
-    const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    const bg = ctx.createLinearGradient(0, 0, 0, h);
     bg.addColorStop(0, '#31105e');
     bg.addColorStop(0.85, '#1d0a3b');
     bg.addColorStop(1, '#090314');
     ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, w, h);
 
     // Drop tray line
     ctx.fillStyle = '#ffbe0b';
-    ctx.fillRect(14, 232, canvas.width - 28, 4);
+    ctx.fillRect(14, 232, w - 28, 4);
 
     // Moving golden pusher shelf
     const shelfGrad = ctx.createLinearGradient(0, pusherY - 46, 0, pusherY);
@@ -163,7 +178,7 @@ export class CoinDozerController {
     ctx.strokeStyle = '#fff3b0';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(18, pusherY - 46, canvas.width - 36, 46, 8);
+    ctx.roundRect(18, pusherY - 46, w - 36, 46, 8);
     ctx.fill();
     ctx.stroke();
 
@@ -197,6 +212,9 @@ export const PLINKO_MULTIPLIERS = [15, 4, 1.8, 0.7, 0.5, 0.7, 1.8, 4, 15];
 export class PlinkoController {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
+  private logicalWidth = 300;
+  private logicalHeight = 260;
+  private dpr = 1;
   private rafId = 0;
   private pegs: { x: number; y: number }[] = [];
   private balls: { x: number; y: number; vx: number; vy: number; bet: number }[] = [];
@@ -211,8 +229,19 @@ export class PlinkoController {
     this.ctx = ctx;
     this.onFinish = onFinish;
     this.playTick = playTick;
+    this.setupHiDpi();
     this.buildPegs();
     this.start();
+  }
+
+  private setupHiDpi(): void {
+    this.dpr = Math.min(window.devicePixelRatio || 1, 3);
+    this.canvas.width = Math.round(this.logicalWidth * this.dpr);
+    this.canvas.height = Math.round(this.logicalHeight * this.dpr);
+    this.canvas.style.width = `${this.logicalWidth}px`;
+    this.canvas.style.maxWidth = '100%';
+    this.canvas.style.aspectRatio = `${this.logicalWidth} / ${this.logicalHeight}`;
+    this.canvas.style.height = 'auto';
   }
 
   private buildPegs(): void {
@@ -221,7 +250,7 @@ export class PlinkoController {
     for (let r = 0; r < rows; r++) {
       const count = 4 + r;
       const spacing = 26;
-      const startX = this.canvas.width / 2 - ((count - 1) * spacing) / 2;
+      const startX = this.logicalWidth / 2 - ((count - 1) * spacing) / 2;
       const y = 36 + r * 26;
       for (let i = 0; i < count; i++) {
         this.pegs.push({ x: startX + i * spacing, y });
@@ -231,7 +260,7 @@ export class PlinkoController {
 
   dropBall(bet: number): void {
     this.balls.push({
-      x: this.canvas.width / 2 + (Math.random() - 0.5) * 14,
+      x: this.logicalWidth / 2 + (Math.random() - 0.5) * 14,
       y: 12,
       vx: (Math.random() - 0.5) * 1.4,
       vy: 1,
@@ -269,10 +298,10 @@ export class PlinkoController {
           }
         }
 
-        b.x = Math.max(16, Math.min(this.canvas.width - 16, b.x));
+        b.x = Math.max(16, Math.min(this.logicalWidth - 16, b.x));
 
-        if (b.y >= this.canvas.height - 26) {
-          const slotW = this.canvas.width / PLINKO_MULTIPLIERS.length;
+        if (b.y >= this.logicalHeight - 26) {
+          const slotW = this.logicalWidth / PLINKO_MULTIPLIERS.length;
           const idx = Math.min(PLINKO_MULTIPLIERS.length - 1, Math.max(0, Math.floor(b.x / slotW)));
           const mult = PLINKO_MULTIPLIERS[idx];
           this.onFinish(Math.round(b.bet * mult), mult);
@@ -288,11 +317,12 @@ export class PlinkoController {
   }
 
   private draw(): void {
-    const { ctx, canvas } = this;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const { ctx, logicalWidth: w, logicalHeight: h, dpr } = this;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
 
     ctx.fillStyle = '#15072b';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, w, h);
 
     // Pegs
     ctx.fillStyle = '#ffd166';
@@ -303,16 +333,16 @@ export class PlinkoController {
     }
 
     // Bottom multiplier buckets
-    const slotW = canvas.width / PLINKO_MULTIPLIERS.length;
+    const slotW = w / PLINKO_MULTIPLIERS.length;
     PLINKO_MULTIPLIERS.forEach((m, i) => {
       const sx = i * slotW;
       ctx.fillStyle = m >= 4 ? '#f72585' : m >= 1.5 ? '#4cc9f0' : '#4c1d95';
-      ctx.fillRect(sx + 2, canvas.height - 26, slotW - 4, 24);
+      ctx.fillRect(sx + 2, h - 26, slotW - 4, 24);
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 10px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`${m}x`, sx + slotW / 2, canvas.height - 14);
+      ctx.fillText(`${m}x`, sx + slotW / 2, h - 14);
     });
 
     // Balls

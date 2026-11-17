@@ -122,9 +122,9 @@ export function createInitialState(deviceId = generateFallbackDeviceId()): GameS
 
   return {
     deviceId,
-    playerName: 'Speler',
+    playerName: 'Player',
     apiBaseUrl: defaultApi,
-    coins: STARTER_COINS, // 1.500.000.000 startmunten voor iedereen!
+    coins: STARTER_COINS, // 1.5B starter coins
     starterBillionGranted: true,
     totalWon: 0,
     totalSpins: 0,
@@ -169,14 +169,12 @@ export function loadGameState(deviceId?: string): GameState {
     const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('fair_coin_slots_state_v1');
     if (!raw) return initial;
     const parsed = JSON.parse(raw) as Partial<GameState>;
+    const rawName = typeof parsed.playerName === 'string' ? parsed.playerName.trim() : '';
     const merged: GameState = {
       ...initial,
       ...parsed,
       deviceId: deviceId || parsed.deviceId || initial.deviceId,
-      playerName:
-        typeof parsed.playerName === 'string' && parsed.playerName.trim()
-          ? parsed.playerName.trim()
-          : 'Speler',
+      playerName: rawName && rawName !== 'Speler' ? rawName : 'Player',
       apiBaseUrl:
         typeof parsed.apiBaseUrl === 'string' && parsed.apiBaseUrl.trim()
           ? parsed.apiBaseUrl.trim().replace(/\/+$/, '')

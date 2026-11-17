@@ -18,6 +18,12 @@
   user-select: none;
 }
 
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 html,
 body {
   margin: 0;
@@ -37,8 +43,6 @@ body {
   width: 100%;
   max-width: 540px;
   margin: 0 auto;
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
   position: relative;
 }
 
@@ -47,7 +51,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px 6px;
+  padding: max(8px, env(safe-area-inset-top, 8px)) 10px 6px;
   background: linear-gradient(180deg, rgba(35, 14, 72, 0.96), rgba(22, 9, 48, 0.92));
   border-bottom: 2px solid var(--border-glow);
   z-index: 10;
@@ -146,12 +150,18 @@ body {
   align-items: flex-end;
 }
 
+.hud-btn-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
 .icon-btn {
   border: 1px solid rgba(255, 255, 255, 0.22);
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
   border-radius: 10px;
-  padding: 4px 8px;
+  padding: 4px 7px;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -755,9 +765,9 @@ body {
 /* Bottom Navigation */
 .bottom-nav {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
-  padding: 6px 6px 8px;
+  padding: 6px 6px max(8px, env(safe-area-inset-bottom, 8px));
   background: rgba(18, 8, 38, 0.96);
   border-top: 2px solid var(--border-glow);
 }

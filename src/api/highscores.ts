@@ -60,7 +60,7 @@ export async function submitGlobalSlotsScore(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         deviceId: payload.deviceId,
-        playerName: payload.playerName.trim() || 'Speler',
+        playerName: payload.playerName.trim() || 'Player',
         level: payload.level,
         coins: payload.coins,
         totalWon: payload.totalWon,
