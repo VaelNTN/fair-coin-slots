@@ -62,13 +62,24 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      - name: Decode Android upload keystore (when configured)
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      - name: Decode Android upload keystore & check Play config
+        id: play_config
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PLAY_SA_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
-          echo "$KEYSTORE_B64" | tr -d '\n\r ' | base64 -d > "${{ runner.temp }}/upload-keystore.jks"
-          echo "ANDROID_KEYSTORE_PATH=${{ runner.temp }}/upload-keystore.jks" >> "$GITHUB_ENV"
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | tr -d '\n\r ' | base64 -d > "${{ runner.temp }}/upload-keystore.jks"
+            echo "ANDROID_KEYSTORE_PATH=${{ runner.temp }}/upload-keystore.jks" >> "$GITHUB_ENV"
+            echo "has_keystore=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_keystore=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$PLAY_SA_JSON" ]; then
+            echo "has_play_sa=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_play_sa=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build Debug APK & Release AAB
         working-directory: android
@@ -94,7 +105,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload to Google Play Closed Testing (when configured)
-        if: ${{ github.event_name != 'pull_request' && secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON != '' }}
+        if: github.event_name != 'pull_request' && steps.play_config.outputs.has_keystore == 'true' && steps.play_config.outputs.has_play_sa == 'true'
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
