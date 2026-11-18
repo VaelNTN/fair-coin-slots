@@ -13,8 +13,8 @@ import { GameState } from '../storage/state';
 
 export const FLASH_EVENT_DURATION_MS = 10 * 60 * 1000;
 export const PET_BOOST_DURATION_MS = 15 * 60 * 1000;
-export const GASHAPON_COIN_COST = 35_000_000;
-export const PET_TREATS_SHOP_COST = 75_000_000;
+export const GASHAPON_COIN_COST = 500_000_000;
+export const PET_TREATS_SHOP_COST = 1_500_000_000;
 
 export function getActiveFlashEvent(
   now = Date.now(),

@@ -1,4 +1,9 @@
-import { CHARACTER_COLORS, CharacterSpecies } from '../data/machines';
+import {
+  CHARACTER_COLORS,
+  CharacterBackdrop,
+  CharacterExpression,
+  CharacterSpecies,
+} from '../data/machines';
 
 export type MascotMood = 'idle' | 'spinning' | 'bigwin' | 'bonus';
 export type MascotAccessory = 'none' | 'crown' | 'shades' | 'both';
@@ -11,6 +16,8 @@ export interface CharacterConfig {
   outfitId: string;
   propId: string;
   auraId: string;
+  expression?: CharacterExpression;
+  backdropId?: CharacterBackdrop;
 }
 
 export class MascotRenderer {
@@ -26,6 +33,8 @@ export class MascotRenderer {
     outfitId: 'out_tee',
     propId: 'prop_none',
     auraId: 'aura_none',
+    expression: 'happy',
+    backdropId: 'studio',
   };
   private t = 0;
   private lastTime = 0;
@@ -430,16 +439,43 @@ export class MascotRenderer {
       ctx.fillText('♥', 10, -9);
       return;
     }
+    if (ew === 'eye_star') {
+      ctx.fillStyle = '#facc15';
+      ctx.strokeStyle = '#713f12';
+      ctx.lineWidth = 1.6;
+      ctx.font = 'bold 15px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('★', -10, -9);
+      ctx.strokeText('★', -10, -9);
+      ctx.fillText('★', 10, -9);
+      ctx.strokeText('★', 10, -9);
+      return;
+    }
 
+    const expr = this.config.expression ?? 'happy';
     for (const side of [-1, 1]) {
       const ex = side * 10;
       const ey = -10;
-      if (this.mood === 'bigwin') {
+      if (this.mood === 'bigwin' || (expr === 'wink' && side === 1)) {
         ctx.strokeStyle = species === 'robot' ? '#38bdf8' : outline;
         ctx.lineWidth = 2.6;
         ctx.beginPath();
         ctx.arc(ex, ey + 2, 5, Math.PI * 1.1, Math.PI * 1.9);
         ctx.stroke();
+      } else if (expr === 'rich') {
+        ctx.fillStyle = '#ffd166';
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(ex, ey, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#15803d';
+        ctx.font = 'bold 9px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('$', ex, ey + 0.5);
       } else {
         ctx.fillStyle = species === 'robot' ? '#38bdf8' : '#ffffff';
         ctx.beginPath();
@@ -449,7 +485,7 @@ export class MascotRenderer {
         ctx.lineWidth = 1.1;
         ctx.stroke();
         if (species !== 'robot') {
-          const pupilOff = this.mood === 'spinning' ? Math.sin(this.t * 6) * 1.8 : 0;
+          const pupilOff = this.mood === 'spinning' ? Math.sin(this.t * 6) * 1.8 : expr === 'cool' ? 1.2 : 0;
           ctx.fillStyle = '#3b82f6';
           ctx.beginPath();
           ctx.arc(ex + pupilOff, ey, 3.3, 0, Math.PI * 2);
@@ -465,6 +501,15 @@ export class MascotRenderer {
           ctx.beginPath();
           ctx.arc(ex - 1 + pupilOff * 0.4, ey + 1.2, 0.65, 0, Math.PI * 2);
           ctx.fill();
+        }
+        if (expr === 'cool') {
+          // Relaxed cool upper eyelid line
+          ctx.strokeStyle = outline;
+          ctx.lineWidth = 2.2;
+          ctx.beginPath();
+          ctx.moveTo(ex - 6, ey - 3.5);
+          ctx.lineTo(ex + 6, ey - (side === 1 ? 5.5 : 2.5));
+          ctx.stroke();
         }
       }
     }
@@ -593,18 +638,46 @@ export class MascotRenderer {
       ctx.strokeStyle = '#ffd166';
       ctx.lineWidth = 1.8;
       ctx.beginPath();
-      ctx.moveTo(-20, 4);
-      ctx.lineTo(20, 4);
-      ctx.lineTo(0, -22);
+      ctx.ellipse(0, 4, 23, 4.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-16, 3);
+      ctx.lineTo(16, 3);
+      ctx.lineTo(2, -23);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      ctx.fillStyle = '#fde047';
+      ctx.font = 'bold 9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('★', -3, -5);
+      ctx.fillText('✦', 4, -12);
     } else if (hat === 'hat_halo') {
       ctx.strokeStyle = '#fde047';
       ctx.lineWidth = 3.2;
       ctx.beginPath();
       ctx.ellipse(0, -9, 17, 5, 0, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.fillStyle = '#fffbeb';
+      ctx.beginPath();
+      ctx.arc(-14, -9, 1.8, 0, Math.PI * 2);
+      ctx.arc(14, -9, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (hat === 'hat_tophat') {
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.roundRect(-22, 1, 44, 5, 2.5);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.roundRect(-14, -20, 28, 22, 3);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillRect(-14, -4, 28, 4.5);
     }
 
     ctx.restore();
@@ -619,11 +692,23 @@ export class MascotRenderer {
     else if (prop === 'prop_mic') emoji = '🎤';
     else if (prop === 'prop_wand') emoji = '🪄';
     else if (prop === 'prop_trophy') emoji = '🏆';
+    else if (prop === 'prop_diamond') emoji = '💎';
     if (!emoji) return;
 
+    const palette = CHARACTER_COLORS.find((c) => c.id === this.config.colorId) ?? CHARACTER_COLORS[0];
+    const bob = Math.sin(this.t * 2.5) * 2;
     ctx.font = '20px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(emoji, 34, 24 + Math.sin(this.t * 2.5) * 2);
+    ctx.fillText(emoji, 34, 22 + bob);
+
+    // Cute rounded mascot paw gripping the prop
+    ctx.fillStyle = palette.primary;
+    ctx.strokeStyle = palette.outline;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(28, 29 + bob * 0.7, 6.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
   }
 }

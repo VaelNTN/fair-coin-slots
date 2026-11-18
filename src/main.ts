@@ -17,8 +17,12 @@ import {
   CARDS,
   CARD_SETS,
   CardPackTier,
+  CHARACTER_BACKDROPS,
   CHARACTER_COLORS,
+  CHARACTER_EXPRESSIONS,
   CHARACTER_SPECIES_LIST,
+  CharacterBackdrop,
+  CharacterExpression,
   CharacterSpecies,
   formatCoins,
   formatCoinsFull,
@@ -65,7 +69,7 @@ import {
   PET_TREATS_SHOP_COST,
   RouletteBetType,
 } from './game/expansionLogic';
-import { MascotRenderer } from './game/mascotRenderer';
+import { CharacterConfig, MascotMood, MascotRenderer } from './game/mascotRenderer';
 import { CrashRocketCanvas, GashaponCanvas, RouletteWheelCanvas } from './game/newMinigames';
 import { SoundFX } from './game/SoundFX';
 import {
@@ -125,6 +129,8 @@ class FairCoinSlotsApp {
   private characterSub: CharacterSubTab = 'studio';
   private bonusSub: BonusSubTab = 'wheel';
   private shopCategory: ShopCategory = 'outfit';
+  private studioPreviewMood: MascotMood = 'idle';
+  private studioTryOn: Partial<Record<ShopCategory, string>> = {};
   private mapRangeIdx = 0;
   private showClubSwitcher = false;
 
@@ -3183,7 +3189,24 @@ class FairCoinSlotsApp {
       return;
     }
 
+    this.mountCharacterStudio(panel, subNavHtml);
+  }
+
+  private getStudioPreviewConfig(): CharacterConfig {
     const c = this.state.character;
+    return {
+      ...c,
+      expression: c.expression ?? 'happy',
+      backdropId: c.backdropId ?? 'studio',
+      hatId: this.studioTryOn.hat ?? c.hatId,
+      eyewearId: this.studioTryOn.eyewear ?? c.eyewearId,
+      outfitId: this.studioTryOn.outfit ?? c.outfitId,
+      propId: this.studioTryOn.prop ?? c.propId,
+      auraId: this.studioTryOn.aura ?? c.auraId,
+    };
+  }
+
+  private mountCharacterStudio(panel: HTMLElement, subNavHtml: string): void {
     const catLabels: { id: ShopCategory; label: string }[] = [
       { id: 'outfit', label: '👕 Outfits' },
       { id: 'hat', label: '👑 Hats' },
@@ -3191,63 +3214,38 @@ class FairCoinSlotsApp {
       { id: 'prop', label: '💰 Props' },
       { id: 'aura', label: '✨ Auras' },
     ];
-    const items = SHOP_ITEMS.filter((i) => i.category === this.shopCategory);
 
     panel.innerHTML = `
       ${subNavHtml}
-      <div class="char-stage">
-        <canvas id="preview-char-canvas" width="180" height="180" style="width:140px;height:140px;"></canvas>
-        <div style="font-size:14px;font-weight:900;color:#ffd166;">Your Cartoon Mascot</div>
+      <div class="char-stage" id="char-stage-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;gap:6px;">
+          <span style="font-size:13px;font-weight:900;color:#ffd166;">🎨 Mascot Style Studio</span>
+          <div style="display:flex;gap:4px;">
+            <button class="subtab-btn" id="btn-char-random" style="padding:4px 8px;font-size:10px;">🎲 Randomize</button>
+            <button class="subtab-btn" id="btn-char-reset" style="padding:4px 8px;font-size:10px;">🔄 Reset</button>
+          </div>
+        </div>
+        <canvas id="preview-char-canvas" width="200" height="200" style="width:146px;height:146px;"></canvas>
+        <div id="char-tryon-slot" style="width:100%;"></div>
+        <div id="char-pose-row" class="subtab-strip" style="justify-content:center;max-width:100%;"></div>
         <input id="char-player-name" class="text-input" type="text" maxlength="20" placeholder="Your player name" value="${this.state.playerName.replace(/"/g, '&quot;')}" style="max-width:240px;text-align:center;" />
-        <div class="subtab-strip" style="justify-content:center;max-width:100%;">
-          ${CHARACTER_SPECIES_LIST.map(
-            (sp) => `
-            <button class="subtab-btn ${c.species === sp.id ? 'active' : ''}" data-species="${sp.id}">
-              ${sp.emoji} ${sp.name}
-            </button>
-          `
-          ).join('')}
-        </div>
-        <div class="swatch-row">
-          ${CHARACTER_COLORS.map(
-            (col) => `
-            <button class="color-swatch ${c.colorId === col.id ? 'active' : ''}" data-charcolor="${col.id}" style="background:${col.primary};" title="${col.name}"></button>
-          `
-          ).join('')}
-        </div>
+        <div id="char-loadout-row" class="loadout-chips"></div>
+        <div id="char-species-row" class="subtab-strip" style="justify-content:center;max-width:100%;"></div>
+        <div id="char-expression-row" class="subtab-strip" style="justify-content:center;max-width:100%;"></div>
+        <div id="char-backdrop-row" class="subtab-strip" style="justify-content:center;max-width:100%;"></div>
+        <div id="char-swatch-row" class="swatch-row"></div>
       </div>
 
-      <div class="card">
-        <h2>🛍️ Style & Accessory Shop</h2>
-        <p>Unlock outfits and gear using virtual coins.</p>
-        <div class="subtab-strip">
-          ${catLabels
-            .map(
-              (cat) => `
-            <button class="subtab-btn ${this.shopCategory === cat.id ? 'active' : ''}" data-shopcat="${cat.id}">${cat.label}</button>
-          `
-            )
-            .join('')}
+      <div class="card" id="char-shop-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+          <h2>🛍️ Luxury Style Shop</h2>
+          <span class="shop-price-pill trillion">Billions & Trillions Tier</span>
         </div>
-        <div class="shop-grid">
-          ${items
-            .map((item) => {
-              const owned = this.state.ownedShopItems.includes(item.id) || item.priceCoins === 0;
-              const equipped = this.isItemEquipped(item.category, item.id);
-              const priceLabel = item.priceCoins === 0 ? 'Free' : `🪙 ${item.priceCoins.toLocaleString('en-US')}`;
-              return `
-                <div class="shop-item ${equipped ? 'equipped' : ''}">
-                  <div class="s-emoji">${item.emoji}</div>
-                  <div class="s-name">${item.name}</div>
-                  <div class="s-desc">${item.description}</div>
-                  <button class="action-btn ${equipped ? 'green' : owned ? 'secondary' : ''}" data-shopitem="${item.id}" style="width:100%;">
-                    ${equipped ? '✓ Equipped' : owned ? 'Equip' : `Buy ${priceLabel}`}
-                  </button>
-                </div>
-              `;
-            })
-            .join('')}
+        <p style="font-size:11px;">Tap <b>👁️ Try</b> on any item to preview it live on your mascot before spending Billions/Trillions!</p>
+        <div class="subtab-strip" id="char-shop-cats">
+          ${catLabels.map((cat) => `<button class="subtab-btn" data-shopcat="${cat.id}">${cat.label}</button>`).join('')}
         </div>
+        <div class="shop-grid" id="char-shop-grid"></div>
       </div>
     `;
 
@@ -3263,7 +3261,8 @@ class FairCoinSlotsApp {
     const previewCanvas = panel.querySelector<HTMLCanvasElement>('#preview-char-canvas');
     if (previewCanvas) {
       this.previewCharacter = new MascotRenderer(previewCanvas);
-      this.previewCharacter.setConfig(this.state.character);
+      this.previewCharacter.setConfig(this.getStudioPreviewConfig());
+      this.previewCharacter.setMood(this.studioPreviewMood);
     }
 
     panel.querySelector<HTMLInputElement>('#char-player-name')?.addEventListener('input', (ev) => {
@@ -3272,58 +3271,316 @@ class FairCoinSlotsApp {
       this.scheduleGlobalSync(1200);
     });
 
-    panel.querySelectorAll<HTMLButtonElement>('[data-species]').forEach((b) => {
-      b.addEventListener('click', () => {
-        this.state.character.species = b.dataset.species as CharacterSpecies;
-        saveGameState(this.state);
-        this.sfx.playTap();
-        this.syncCharacterRenderers();
-        this.renderCharacterTab();
-      });
+    panel.querySelector('#btn-char-random')?.addEventListener('click', () => {
+      const randSp = CHARACTER_SPECIES_LIST[Math.floor(Math.random() * CHARACTER_SPECIES_LIST.length)].id;
+      const randCol = CHARACTER_COLORS[Math.floor(Math.random() * CHARACTER_COLORS.length)].id;
+      const randExp = CHARACTER_EXPRESSIONS[Math.floor(Math.random() * CHARACTER_EXPRESSIONS.length)].id;
+      const randBg = CHARACTER_BACKDROPS[Math.floor(Math.random() * CHARACTER_BACKDROPS.length)].id;
+      this.state.character.species = randSp;
+      this.state.character.colorId = randCol;
+      this.state.character.expression = randExp;
+      this.state.character.backdropId = randBg;
+      const ownedByCat = (cat: ShopCategory) =>
+        SHOP_ITEMS.filter((i) => i.category === cat && (i.priceCoins === 0 || this.state.ownedShopItems.includes(i.id)));
+      const pick = (cat: ShopCategory) => {
+        const list = ownedByCat(cat);
+        return list[Math.floor(Math.random() * list.length)]?.id;
+      };
+      this.state.character.hatId = pick('hat') ?? 'hat_none';
+      this.state.character.eyewearId = pick('eyewear') ?? 'eye_none';
+      this.state.character.outfitId = pick('outfit') ?? 'out_tee';
+      this.state.character.propId = pick('prop') ?? 'prop_none';
+      this.state.character.auraId = pick('aura') ?? 'aura_none';
+      this.studioTryOn = {};
+      saveGameState(this.state);
+      this.sfx.playUpgradePitch(3);
+      this.syncCharacterRenderers();
+      this.refreshCharacterStudio(panel);
+      this.showToast('🎲 Randomized mascot style!');
     });
 
-    panel.querySelectorAll<HTMLButtonElement>('[data-charcolor]').forEach((b) => {
-      b.addEventListener('click', () => {
-        this.state.character.colorId = b.dataset.charcolor!;
-        saveGameState(this.state);
-        this.sfx.playTap();
-        this.syncCharacterRenderers();
-        this.renderCharacterTab();
-      });
+    panel.querySelector('#btn-char-reset')?.addEventListener('click', () => {
+      this.state.character.hatId = 'hat_none';
+      this.state.character.eyewearId = 'eye_none';
+      this.state.character.outfitId = 'out_tee';
+      this.state.character.propId = 'prop_none';
+      this.state.character.auraId = 'aura_none';
+      this.state.character.expression = 'happy';
+      this.studioTryOn = {};
+      saveGameState(this.state);
+      this.sfx.playTap();
+      this.syncCharacterRenderers();
+      this.refreshCharacterStudio(panel);
+      this.showToast('🔄 Reset gear to classic look.');
     });
 
     panel.querySelectorAll<HTMLButtonElement>('[data-shopcat]').forEach((b) => {
       b.addEventListener('click', () => {
         this.shopCategory = b.dataset.shopcat as ShopCategory;
         this.sfx.playTap();
-        this.renderCharacterTab();
+        this.refreshCharacterStudio(panel);
       });
     });
 
-    panel.querySelectorAll<HTMLButtonElement>('[data-shopitem]').forEach((b) => {
-      b.addEventListener('click', () => {
-        const item = SHOP_ITEMS.find((x) => x.id === b.dataset.shopitem);
-        if (!item) return;
-        const owned = this.state.ownedShopItems.includes(item.id) || item.priceCoins === 0;
-        if (!owned) {
-          if (this.state.coins < item.priceCoins) {
-            this.showToast(`You need ${item.priceCoins.toLocaleString('en-US')} coins!`);
+    this.refreshCharacterStudio(panel);
+  }
+
+  private refreshCharacterStudio(panel: HTMLElement): void {
+    const previewCfg = this.getStudioPreviewConfig();
+    if (this.previewCharacter) {
+      this.previewCharacter.setConfig(previewCfg);
+      this.previewCharacter.setMood(this.studioPreviewMood);
+    }
+
+    const stageCard = panel.querySelector<HTMLElement>('#char-stage-card');
+    const bgDef = CHARACTER_BACKDROPS.find((b) => b.id === (previewCfg.backdropId ?? 'studio')) ?? CHARACTER_BACKDROPS[0];
+    if (stageCard) {
+      stageCard.style.background = bgDef.css;
+    }
+
+    // Try-On Banner
+    const tryOnSlot = panel.querySelector<HTMLElement>('#char-tryon-slot');
+    if (tryOnSlot) {
+      const tryIds = Object.entries(this.studioTryOn).filter(([, v]) => Boolean(v)) as [ShopCategory, string][];
+      if (tryIds.length > 0) {
+        const tryItems = tryIds.map(([, id]) => SHOP_ITEMS.find((x) => x.id === id)).filter(Boolean);
+        const totalTryCost = tryItems.reduce((sum, it) => sum + (it && !this.state.ownedShopItems.includes(it.id) ? it.priceCoins : 0), 0);
+        tryOnSlot.innerHTML = `
+          <div class="try-on-banner">
+            <span>👁️ Previewing: <b>${tryItems.map((i) => `${i!.emoji} ${i!.name}`).join(', ')}</b></span>
+            <div style="display:flex;gap:4px;">
+              ${totalTryCost > 0 ? `<button class="action-btn green" id="btn-buy-tryon" style="padding:4px 8px;font-size:10px;">Buy 🪙 ${formatCoins(totalTryCost)}</button>` : ''}
+              <button class="action-btn secondary" id="btn-clear-tryon" style="padding:4px 8px;font-size:10px;">✖</button>
+            </div>
+          </div>
+        `;
+        tryOnSlot.querySelector('#btn-clear-tryon')?.addEventListener('click', () => {
+          this.studioTryOn = {};
+          this.sfx.playTap();
+          this.refreshCharacterStudio(panel);
+        });
+        tryOnSlot.querySelector('#btn-buy-tryon')?.addEventListener('click', () => {
+          if (this.state.coins < totalTryCost) {
+            this.showToast(`You need 🪙 ${formatCoins(totalTryCost)} coins!`);
             return;
           }
-          this.state.coins -= item.priceCoins;
-          this.state.ownedShopItems.push(item.id);
-          this.sfx.playUpgrade();
-          this.showToast(`🛍️ Bought & equipped ${item.name}!`);
-        } else {
+          this.state.coins -= totalTryCost;
+          for (const it of tryItems) {
+            if (!it) continue;
+            if (!this.state.ownedShopItems.includes(it.id)) {
+              this.state.ownedShopItems.push(it.id);
+            }
+            this.equipItem(it.category, it.id);
+          }
+          this.studioTryOn = {};
+          saveGameState(this.state);
+          this.sfx.playWorldComplete();
+          this.spawnConfettiBurst(24);
+          this.syncCharacterRenderers();
+          this.renderHud();
+          this.refreshCharacterStudio(panel);
+          this.showToast('🛍️ Purchased & equipped previewed style!');
+        });
+      } else {
+        tryOnSlot.innerHTML = '';
+      }
+    }
+
+    // Mood preview row
+    const poseRow = panel.querySelector<HTMLElement>('#char-pose-row');
+    if (poseRow) {
+      const poses: { id: MascotMood; label: string }[] = [
+        { id: 'idle', label: '😌 Idle' },
+        { id: 'spinning', label: '🎰 Spin' },
+        { id: 'bigwin', label: '🎉 Win' },
+        { id: 'bonus', label: '⭐ Bonus' },
+      ];
+      poseRow.innerHTML = poses
+        .map((p) => `<button class="subtab-btn ${this.studioPreviewMood === p.id ? 'active' : ''}" data-mood="${p.id}" style="padding:4px 8px;font-size:10px;">${p.label}</button>`)
+        .join('');
+      poseRow.querySelectorAll<HTMLButtonElement>('[data-mood]').forEach((b) => {
+        b.addEventListener('click', () => {
+          this.studioPreviewMood = b.dataset.mood as MascotMood;
           this.sfx.playTap();
-        }
-        this.equipItem(item.category, item.id);
-        saveGameState(this.state);
-        this.syncCharacterRenderers();
-        this.renderHud();
-        this.renderCharacterTab();
+          this.refreshCharacterStudio(panel);
+        });
       });
+    }
+
+    // Loadout chips (click to jump straight to slot)
+    const loadoutRow = panel.querySelector<HTMLElement>('#char-loadout-row');
+    if (loadoutRow) {
+      const slotDefs: { cat: ShopCategory; icon: string; val: string }[] = [
+        { cat: 'outfit', icon: '👕', val: previewCfg.outfitId },
+        { cat: 'hat', icon: '👑', val: previewCfg.hatId },
+        { cat: 'eyewear', icon: '🕶️', val: previewCfg.eyewearId },
+        { cat: 'prop', icon: '💰', val: previewCfg.propId },
+        { cat: 'aura', icon: '✨', val: previewCfg.auraId },
+      ];
+      loadoutRow.innerHTML = slotDefs
+        .map((s) => {
+          const item = SHOP_ITEMS.find((x) => x.id === s.val);
+          return `<button class="loadout-chip ${this.shopCategory === s.cat ? 'active' : ''}" data-jumpcat="${s.cat}">${s.icon} ${item?.name ?? 'None'}</button>`;
+        })
+        .join('');
+      loadoutRow.querySelectorAll<HTMLButtonElement>('[data-jumpcat]').forEach((b) => {
+        b.addEventListener('click', () => {
+          this.shopCategory = b.dataset.jumpcat as ShopCategory;
+          this.sfx.playTap();
+          this.refreshCharacterStudio(panel);
+        });
+      });
+    }
+
+    // Species row
+    const speciesRow = panel.querySelector<HTMLElement>('#char-species-row');
+    if (speciesRow) {
+      speciesRow.innerHTML = CHARACTER_SPECIES_LIST.map(
+        (sp) => `<button class="subtab-btn ${this.state.character.species === sp.id ? 'active' : ''}" data-species="${sp.id}">${sp.emoji} ${sp.name}</button>`
+      ).join('');
+      speciesRow.querySelectorAll<HTMLButtonElement>('[data-species]').forEach((b) => {
+        b.addEventListener('click', () => {
+          this.state.character.species = b.dataset.species as CharacterSpecies;
+          saveGameState(this.state);
+          this.sfx.playTap();
+          this.syncCharacterRenderers();
+          this.refreshCharacterStudio(panel);
+        });
+      });
+    }
+
+    // Expressions row
+    const exprRow = panel.querySelector<HTMLElement>('#char-expression-row');
+    if (exprRow) {
+      const curExpr = this.state.character.expression ?? 'happy';
+      exprRow.innerHTML = CHARACTER_EXPRESSIONS.map(
+        (ex) => `<button class="subtab-btn ${curExpr === ex.id ? 'active' : ''}" data-charexpr="${ex.id}" style="padding:4px 9px;font-size:11px;">${ex.emoji} ${ex.name}</button>`
+      ).join('');
+      exprRow.querySelectorAll<HTMLButtonElement>('[data-charexpr]').forEach((b) => {
+        b.addEventListener('click', () => {
+          this.state.character.expression = b.dataset.charexpr as CharacterExpression;
+          saveGameState(this.state);
+          this.sfx.playTap();
+          this.syncCharacterRenderers();
+          this.refreshCharacterStudio(panel);
+        });
+      });
+    }
+
+    // Backdrops row
+    const bgRow = panel.querySelector<HTMLElement>('#char-backdrop-row');
+    if (bgRow) {
+      const curBg = this.state.character.backdropId ?? 'studio';
+      bgRow.innerHTML = CHARACTER_BACKDROPS.map(
+        (bg) => `<button class="subtab-btn ${curBg === bg.id ? 'active' : ''}" data-charbg="${bg.id}" style="padding:4px 9px;font-size:11px;">${bg.emoji} ${bg.name}</button>`
+      ).join('');
+      bgRow.querySelectorAll<HTMLButtonElement>('[data-charbg]').forEach((b) => {
+        b.addEventListener('click', () => {
+          this.state.character.backdropId = b.dataset.charbg as CharacterBackdrop;
+          saveGameState(this.state);
+          this.sfx.playTap();
+          this.refreshCharacterStudio(panel);
+        });
+      });
+    }
+
+    // Color swatches
+    const swatchRow = panel.querySelector<HTMLElement>('#char-swatch-row');
+    if (swatchRow) {
+      swatchRow.innerHTML = CHARACTER_COLORS.map(
+        (col) => `<button class="color-swatch ${this.state.character.colorId === col.id ? 'active' : ''}" data-charcolor="${col.id}" style="background:${col.primary};" title="${col.name}"></button>`
+      ).join('');
+      swatchRow.querySelectorAll<HTMLButtonElement>('[data-charcolor]').forEach((b) => {
+        b.addEventListener('click', () => {
+          this.state.character.colorId = b.dataset.charcolor!;
+          saveGameState(this.state);
+          this.sfx.playTap();
+          this.syncCharacterRenderers();
+          this.refreshCharacterStudio(panel);
+        });
+      });
+    }
+
+    // Shop category pills active state
+    panel.querySelectorAll<HTMLButtonElement>('[data-shopcat]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.shopcat === this.shopCategory);
     });
+
+    // Shop items grid
+    const shopGrid = panel.querySelector<HTMLElement>('#char-shop-grid');
+    if (shopGrid) {
+      const items = SHOP_ITEMS.filter((i) => i.category === this.shopCategory);
+      shopGrid.innerHTML = items
+        .map((item) => {
+          const owned = this.state.ownedShopItems.includes(item.id) || item.priceCoins === 0;
+          const equipped = this.isItemEquipped(item.category, item.id);
+          const trying = this.studioTryOn[item.category] === item.id;
+          const isTrillion = item.priceCoins >= 1_000_000_000_000;
+          const priceLabel = item.priceCoins === 0 ? 'Free' : `🪙 ${formatCoins(item.priceCoins)}`;
+          return `
+            <div class="shop-item ${equipped ? 'equipped' : ''} ${trying ? 'trying' : ''}">
+              <div class="s-emoji" data-tryitem="${item.id}" title="Tap to preview">${item.emoji}</div>
+              <div class="s-name">${item.name}</div>
+              <span class="shop-price-pill ${isTrillion ? 'trillion' : ''}">${priceLabel}</span>
+              <div class="s-desc">${item.description}</div>
+              <div style="display:flex;gap:4px;width:100%;margin-top:auto;">
+                ${
+                  !owned
+                    ? `<button class="action-btn secondary" data-tryitem="${item.id}" style="padding:7px 8px;font-size:11px;">${trying ? '👁️ On' : '👁️ Try'}</button>`
+                    : ''
+                }
+                <button class="action-btn ${equipped ? 'green' : owned ? 'secondary' : ''}" data-shopitem="${item.id}" style="flex:1;padding:7px 8px;font-size:11px;">
+                  ${equipped ? '✓ Equipped' : owned ? 'Equip' : `Buy ${formatCoins(item.priceCoins)}`}
+                </button>
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+
+      shopGrid.querySelectorAll<HTMLElement>('[data-tryitem]').forEach((el) => {
+        el.addEventListener('click', () => {
+          const item = SHOP_ITEMS.find((x) => x.id === el.dataset.tryitem);
+          if (!item) return;
+          if (this.studioTryOn[item.category] === item.id) {
+            delete this.studioTryOn[item.category];
+          } else {
+            this.studioTryOn[item.category] = item.id;
+          }
+          this.sfx.playTap();
+          this.refreshCharacterStudio(panel);
+        });
+      });
+
+      shopGrid.querySelectorAll<HTMLButtonElement>('[data-shopitem]').forEach((b) => {
+        b.addEventListener('click', () => {
+          const item = SHOP_ITEMS.find((x) => x.id === b.dataset.shopitem);
+          if (!item) return;
+          const owned = this.state.ownedShopItems.includes(item.id) || item.priceCoins === 0;
+          if (!owned) {
+            if (this.state.coins < item.priceCoins) {
+              this.showToast(`You need 🪙 ${formatCoins(item.priceCoins)} coins! (Previewing on stage)`);
+              this.studioTryOn[item.category] = item.id;
+              this.refreshCharacterStudio(panel);
+              return;
+            }
+            this.state.coins -= item.priceCoins;
+            this.state.ownedShopItems.push(item.id);
+            this.sfx.playUpgradePitch(4);
+            this.spawnConfettiBurst(20);
+            this.showToast(`🛍️ Bought & equipped ${item.name} for 🪙 ${formatCoins(item.priceCoins)}!`);
+          } else {
+            this.sfx.playTap();
+          }
+          delete this.studioTryOn[item.category];
+          this.equipItem(item.category, item.id);
+          saveGameState(this.state);
+          this.syncCharacterRenderers();
+          this.renderHud();
+          this.refreshCharacterStudio(panel);
+        });
+      });
+    }
   }
 
   private isItemEquipped(cat: ShopCategory, id: string): boolean {
@@ -4569,8 +4826,8 @@ class FairCoinSlotsApp {
           World Lv.<b>${this.state.villageLevel}</b> • Coins: <b>${formatCoins(this.state.coins)}</b> • Spins: <b>${this.state.freeSpins}</b> • Cards: <b>${ownedUnique}/${CARDS.length}</b>
         </div>
         <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;">
-          <button class="action-btn" id="dbg-coins-1b">+1B Coins</button>
           <button class="action-btn" id="dbg-coins-100b">+100B Coins</button>
+          <button class="action-btn" id="dbg-coins-25t">+25T Coins</button>
           <button class="action-btn green" id="dbg-spins-50">+50 Free Spins</button>
           <button class="action-btn green" id="dbg-wheel-50">+50 Wheel Spins</button>
           <button class="action-btn secondary" id="dbg-packs">+3 Each Card Pack</button>
@@ -4601,13 +4858,13 @@ class FairCoinSlotsApp {
         renderDebug();
       };
 
-      box.querySelector('#dbg-coins-1b')?.addEventListener('click', () => {
-        this.state.coins += 1_000_000_000;
-        commit('🛠️ +1B Coins added');
-      });
       box.querySelector('#dbg-coins-100b')?.addEventListener('click', () => {
         this.state.coins += 100_000_000_000;
         commit('🛠️ +100B Coins added');
+      });
+      box.querySelector('#dbg-coins-25t')?.addEventListener('click', () => {
+        this.state.coins += 25_000_000_000_000;
+        commit('🛠️ +25T Coins added');
       });
       box.querySelector('#dbg-spins-50')?.addEventListener('click', () => {
         this.state.freeSpins += 50;

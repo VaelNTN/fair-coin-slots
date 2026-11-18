@@ -169,6 +169,8 @@ export const DEFAULT_CHARACTER: CharacterConfig = {
   outfitId: 'out_tee',
   propId: 'prop_none',
   auraId: 'aura_none',
+  expression: 'happy',
+  backdropId: 'studio',
 };
 
 export function createInitialState(deviceId = generateFallbackDeviceId()): GameState {
