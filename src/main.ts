@@ -133,6 +133,7 @@ class FairCoinSlotsApp {
   private studioPreviewMood: MascotMood = 'idle';
   private studioTryOn: Partial<Record<ShopCategory, string>> = {};
   private mapRangeIdx = 0;
+  private selectedCityPlotIdx: number | null = null;
   private showClubSwitcher = false;
 
   private isSpinning = false;
@@ -2412,12 +2413,12 @@ class FairCoinSlotsApp {
 
   private renderCompleteWorldBannerHtml(def: ReturnType<typeof getVillageDef>): string {
     return `
-      <div style="background:rgba(6,214,160,0.16);border:1.5px solid #06d6a0;border-radius:12px;padding:10px;text-align:center;">
-        <div style="font-size:13px;font-weight:900;color:#06d6a0;">🎉 World ${def.level} City Complete (100/100★)!</div>
-        <div style="font-size:11px;color:#fff8f0;margin:4px 0 8px;">
-          Reward: <b>🪙 +${formatCoins(def.completionCoins)}</b>, <b>🎟️ +${def.completionSpins} Free Spins</b>, <b>🥉 +${def.completionChests}</b>, <b>🥈 +${def.completionSilverPacks}</b>${def.completionGoldPacks > 0 ? `, <b>🥇 +${def.completionGoldPacks}</b>` : ''}${def.completionJoker ? ' & <b>🃏 +1 Joker</b>' : ''}
+      <div style="background:rgba(6,214,160,0.16);border:1.5px solid #06d6a0;border-radius:12px;padding:8px;text-align:center;">
+        <div style="font-size:12px;font-weight:900;color:#06d6a0;">🎉 World ${def.level} City Complete (100/100★)!</div>
+        <div style="font-size:10.5px;color:#fff8f0;margin:3px 0 6px;">
+          Reward: <b>🪙 +${formatCoins(def.completionCoins)}</b>, <b>🎟️ +${def.completionSpins} Spins</b>, <b>🥉 +${def.completionChests}</b>, <b>🥈 +${def.completionSilverPacks}</b>${def.completionGoldPacks > 0 ? `, <b>🥇 +${def.completionGoldPacks}</b>` : ''}${def.completionJoker ? ' & <b>🃏 +1 Joker</b>' : ''}
         </div>
-        <button class="action-btn green" id="btn-complete-world">🚀 Advance to World ${def.level + 1}!</button>
+        <button class="action-btn green" id="btn-complete-world" style="width:100%;padding:7px 12px;">🚀 Advance to World ${def.level + 1}!</button>
       </div>
     `;
   }
@@ -2425,8 +2426,6 @@ class FairCoinSlotsApp {
   private renderProgressiveVillageCardHtml(): string {
     const def = getVillageDef(this.state.villageLevel);
     const stars = getVillageStarsCount(this.state.villageStars);
-    const upgradesLeft = Math.max(0, STARS_PER_VILLAGE - stars);
-    const mult = getTotalMultiplier(this.state);
     const pct = Math.round((stars / STARS_PER_VILLAGE) * 100);
     const allBuilt = stars >= STARS_PER_VILLAGE;
     const flash = this.getFlashEvent();
@@ -2434,51 +2433,51 @@ class FairCoinSlotsApp {
     const discountFactor = isDiscount ? 0.7 : 1;
 
     return `
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+      <div class="card city-card">
+        <div class="city-compact-header">
           <h2>${def.biome.emoji} World ${def.level}/${TOTAL_WORLD_LEVELS}+: ${def.title}</h2>
-          <span class="vip-price-tag" style="background:${def.difficultyColor};color:#120826;">
-            ${def.isBossLevel ? '⚔️ BOSS • ' : ''}${def.difficultyLabel}
-          </span>
+          <div class="city-header-right">
+            ${isDiscount ? '<span class="city-discount-chip">🏷️ 30% OFF</span>' : ''}
+            <span id="city-stars-val">${stars}/${STARS_PER_VILLAGE} ★</span>
+          </div>
         </div>
-        ${
-          isDiscount
-            ? `<div class="flash-event-banner" style="border-color:#38bdf8;"><span>🔨 <b>BUILD RUSH 30% OFF</b> on all City upgrades!</span><span id="flash-event-timer" style="color:#38bdf8;">${this.formatMmSs(flash.remainingMs)}</span></div>`
-            : ''
-        }
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:#c7b8e8;font-weight:700;">
-          <span>City Level: <b style="color:#ffd166;" id="city-stars-val">${stars}/${STARS_PER_VILLAGE} ★</b> • Win Mult: <b style="color:#06d6a0;" id="city-win-mult-val">${mult}x</b></span>
-          <span id="city-upgrades-left">${upgradesLeft === 0 ? '<b style="color:#06d6a0;">🎉 Ready for Next World!</b>' : `<b style="color:#ffd166;">Only ${upgradesLeft} upgrade${upgradesLeft === 1 ? '' : 's'} to World ${def.level + 1}!</b>`}</span>
-        </div>
-        <div class="vip-progress-track">
+        <div class="vip-progress-track" style="height:5px;">
           <div class="vip-progress-fill" id="city-progress-fill" style="width:${pct}%;"></div>
         </div>
         <div id="city-complete-slot">${allBuilt ? this.renderCompleteWorldBannerHtml(def) : ''}</div>
-        <div style="font-size:11px;color:#c7b8e8;text-align:center;">
-          👆 Tap any of the <b>10 buildings</b> in your City! Your character will run over &amp; hammer it up to <b>Lv.10</b> (<b>100★</b> per World).
-        </div>
         <div class="city-world-stage">
-          <canvas class="village-panorama" id="village-panorama-canvas" width="460" height="520"></canvas>
+          <canvas class="village-panorama" id="village-panorama-canvas" width="440" height="640"></canvas>
           ${CITY_PLOT_COORDS.map((coord, idx) => {
             const b = def.buildings[idx];
             if (!b) return '';
             const curStar = this.state.villageStars[idx] ?? 0;
             const isMax = curStar >= STARS_PER_BUILDING;
+            const isSelected = this.selectedCityPlotIdx === idx;
             const cost = getVillageBuildingUpgradeCost(def.level, idx, curStar, discountFactor);
             const canAfford = this.state.coins >= cost;
-            const lvPct = Math.round((curStar / STARS_PER_BUILDING) * 100);
             return `
-              <button
-                type="button"
-                class="city-plot-btn ${canAfford && !isMax ? 'affordable' : ''} ${isMax ? 'maxed' : ''}"
-                data-world-build="${idx}"
+              <div
+                class="city-plot-node ${isSelected ? 'selected' : ''} ${isMax ? 'maxed' : ''}"
+                data-city-node="${idx}"
                 style="left:${(coord.xPct * 100).toFixed(1)}%;top:${(coord.yPct * 100).toFixed(1)}%;"
-                ${isMax ? 'disabled' : ''}
               >
-                <span class="city-plot-name">${b.emoji} ${b.name}</span>
-                <div class="city-plot-bar"><div class="city-plot-bar-fill" style="width:${lvPct}%;"></div></div>
-                <span class="city-plot-cost">Lv.${curStar}/${STARS_PER_BUILDING} • ${isMax ? '👑 MAX LV.10' : `${isDiscount ? '🏷️ ' : '🔨 '}${formatCoins(cost)}`}</span>
-              </button>
+                <button
+                  type="button"
+                  class="city-plot-select-btn"
+                  data-city-plot="${idx}"
+                  aria-label="Select ${b.name}"
+                >
+                  <span class="city-plot-mini-pill">${b.emoji} ${b.name} <b>${isMax ? '👑10' : `Lv.${curStar}`}</b></span>
+                </button>
+                <button
+                  type="button"
+                  class="city-build-btn ${canAfford && !isMax ? 'affordable' : ''} ${isMax ? 'maxed' : ''}"
+                  data-world-build="${idx}"
+                  ${isMax ? 'disabled' : ''}
+                >
+                  ${isMax ? '👑 MAX LV.10' : `🔨 BUILD • ${isDiscount ? '🏷️ ' : '🪙 '}${formatCoins(cost)}`}
+                </button>
+              </div>
             `;
           }).join('')}
         </div>
@@ -2503,6 +2502,7 @@ class FairCoinSlotsApp {
 
     this.state.villageLevel += 1;
     this.state.villageStars = Array(BUILDINGS_PER_VILLAGE).fill(0);
+    this.selectedCityPlotIdx = null;
     addClubActivityPoints(this.state, 120);
     grantXp(this.state, 260);
 
@@ -2535,23 +2535,12 @@ class FairCoinSlotsApp {
   private updateCityDomInPlace(container: HTMLElement): void {
     const def = getVillageDef(this.state.villageLevel);
     const stars = getVillageStarsCount(this.state.villageStars);
-    const upgradesLeft = Math.max(0, STARS_PER_VILLAGE - stars);
-    const mult = getTotalMultiplier(this.state);
     const pct = Math.round((stars / STARS_PER_VILLAGE) * 100);
     const isDiscount = this.getFlashEvent().event.id === 'build_discount';
     const discountFactor = isDiscount ? 0.7 : 1;
 
     const starsEl = container.querySelector<HTMLElement>('#city-stars-val');
     if (starsEl) starsEl.textContent = `${stars}/${STARS_PER_VILLAGE} ★`;
-    const multEl = container.querySelector<HTMLElement>('#city-win-mult-val');
-    if (multEl) multEl.textContent = `${mult}x`;
-    const leftEl = container.querySelector<HTMLElement>('#city-upgrades-left');
-    if (leftEl) {
-      leftEl.innerHTML =
-        upgradesLeft === 0
-          ? '<b style="color:#06d6a0;">🎉 Ready for Next World!</b>'
-          : `<b style="color:#ffd166;">Only ${upgradesLeft} upgrade${upgradesLeft === 1 ? '' : 's'} to World ${def.level + 1}!</b>`;
-    }
     const fillEl = container.querySelector<HTMLElement>('#city-progress-fill');
     if (fillEl) fillEl.style.width = `${pct}%`;
 
@@ -2560,27 +2549,32 @@ class FairCoinSlotsApp {
       subtabBtn.textContent = `🏙️ City Lv.${this.state.villageLevel} (${stars}/${STARS_PER_VILLAGE}★)`;
     }
 
-    container.querySelectorAll<HTMLButtonElement>('[data-world-build]').forEach((btn) => {
-      const idx = Number(btn.dataset.worldBuild);
+    container.querySelectorAll<HTMLElement>('[data-city-node]').forEach((node) => {
+      const idx = Number(node.dataset.cityNode);
       const b = def.buildings[idx];
       if (!b) return;
       const curStar = this.state.villageStars[idx] ?? 0;
       const isMax = curStar >= STARS_PER_BUILDING;
+      const isSelected = this.selectedCityPlotIdx === idx;
       const cost = getVillageBuildingUpgradeCost(def.level, idx, curStar, discountFactor);
       const canAfford = this.state.coins >= cost;
-      const lvPct = Math.round((curStar / STARS_PER_BUILDING) * 100);
 
-      btn.disabled = isMax;
-      btn.classList.toggle('affordable', canAfford && !isMax);
-      btn.classList.toggle('maxed', isMax);
+      node.classList.toggle('selected', isSelected);
+      node.classList.toggle('maxed', isMax);
 
-      const nameEl = btn.querySelector<HTMLElement>('.city-plot-name');
-      if (nameEl) nameEl.innerHTML = `${b.emoji} ${b.name}`;
-      const barFill = btn.querySelector<HTMLElement>('.city-plot-bar-fill');
-      if (barFill) barFill.style.width = `${lvPct}%`;
-      const costEl = btn.querySelector<HTMLElement>('.city-plot-cost');
-      if (costEl) {
-        costEl.textContent = `Lv.${curStar}/${STARS_PER_BUILDING} • ${isMax ? '👑 MAX LV.10' : `${isDiscount ? '🏷️ ' : '🔨 '}${formatCoins(cost)}`}`;
+      const pillEl = node.querySelector<HTMLElement>('.city-plot-mini-pill');
+      if (pillEl) {
+        pillEl.innerHTML = `${b.emoji} ${b.name} <b>${isMax ? '👑10' : `Lv.${curStar}`}</b>`;
+      }
+
+      const buildBtn = node.querySelector<HTMLButtonElement>('[data-world-build]');
+      if (buildBtn) {
+        buildBtn.disabled = isMax;
+        buildBtn.classList.toggle('affordable', canAfford && !isMax);
+        buildBtn.classList.toggle('maxed', isMax);
+        buildBtn.textContent = isMax
+          ? '👑 MAX LV.10'
+          : `🔨 BUILD • ${isDiscount ? '🏷️ ' : '🪙 '}${formatCoins(cost)}`;
       }
     });
 
@@ -2592,8 +2586,17 @@ class FairCoinSlotsApp {
   }
 
   private bindProgressiveVillageEvents(container: HTMLElement): void {
+    const selectPlot = (idx: number) => {
+      if (idx < 0 || idx >= BUILDINGS_PER_VILLAGE) return;
+      this.selectedCityPlotIdx = idx;
+      this.sfx.playTap();
+      this.cityWorldCtrl?.selectAndMoveToBuilding(idx);
+      this.updateCityDomInPlace(container);
+    };
+
     const performUpgrade = (idx: number) => {
       if (idx < 0 || idx >= BUILDINGS_PER_VILLAGE) return;
+      this.selectedCityPlotIdx = idx;
       const def = getVillageDef(this.state.villageLevel);
       const bName = def.buildings[idx]?.name ?? 'Building';
       const curStar = this.state.villageStars[idx] ?? 0;
@@ -2654,7 +2657,8 @@ class FairCoinSlotsApp {
         this.state.villageStars,
         this.state.shields,
         petEmoji,
-        this.state.character
+        this.state.character,
+        this.selectedCityPlotIdx
       );
       this.cityWorldCtrl?.triggerBuildAction(idx, nextLevel, bName, true);
       this.updateCityDomInPlace(container);
@@ -2671,9 +2675,17 @@ class FairCoinSlotsApp {
         this.state.shields,
         petEmoji,
         this.state.character,
-        (slotIdx) => performUpgrade(slotIdx)
+        this.selectedCityPlotIdx,
+        (slotIdx) => selectPlot(slotIdx)
       );
     }
+
+    container.querySelectorAll<HTMLButtonElement>('[data-city-plot]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.dataset.cityPlot);
+        selectPlot(idx);
+      });
+    });
 
     container.querySelectorAll<HTMLButtonElement>('[data-world-build]').forEach((btn) => {
       btn.addEventListener('click', () => {

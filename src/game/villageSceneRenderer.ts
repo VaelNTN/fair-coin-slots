@@ -2,9 +2,7 @@ import { CHARACTER_COLORS, CharacterSpecies } from '../data/machines';
 import {
   BUILDINGS_PER_VILLAGE,
   getVillageDef,
-  getVillageStarsCount,
   STARS_PER_BUILDING,
-  STARS_PER_VILLAGE,
 } from '../data/worldLevels';
 import { CharacterConfig } from './mascotRenderer';
 
@@ -12,23 +10,24 @@ export interface CityPlotCoord {
   slotIdx: number;
   xPct: number;
   yPct: number;
-  tier: 0 | 1 | 2 | 3;
+  tier: 0 | 1 | 2 | 3 | 4;
 }
 
 /**
- * 10 City Building Plots arranged from Front Main Street (0..1) up to the Grand Summit (8..9).
+ * 10 City Building Plots arranged in 5 spacious rows × 2 columns
+ * along a grand central boulevard on a tall rectangular city map (440×640).
  */
 export const CITY_PLOT_COORDS: CityPlotCoord[] = [
-  { slotIdx: 0, xPct: 0.27, yPct: 0.80, tier: 3 },
-  { slotIdx: 1, xPct: 0.73, yPct: 0.80, tier: 3 },
-  { slotIdx: 2, xPct: 0.18, yPct: 0.61, tier: 2 },
-  { slotIdx: 3, xPct: 0.50, yPct: 0.63, tier: 2 },
-  { slotIdx: 4, xPct: 0.82, yPct: 0.61, tier: 2 },
-  { slotIdx: 5, xPct: 0.19, yPct: 0.42, tier: 1 },
-  { slotIdx: 6, xPct: 0.50, yPct: 0.44, tier: 1 },
-  { slotIdx: 7, xPct: 0.81, yPct: 0.42, tier: 1 },
-  { slotIdx: 8, xPct: 0.30, yPct: 0.24, tier: 0 },
-  { slotIdx: 9, xPct: 0.70, yPct: 0.24, tier: 0 },
+  { slotIdx: 0, xPct: 0.24, yPct: 0.83, tier: 4 },
+  { slotIdx: 1, xPct: 0.76, yPct: 0.83, tier: 4 },
+  { slotIdx: 2, xPct: 0.24, yPct: 0.67, tier: 3 },
+  { slotIdx: 3, xPct: 0.76, yPct: 0.67, tier: 3 },
+  { slotIdx: 4, xPct: 0.24, yPct: 0.51, tier: 2 },
+  { slotIdx: 5, xPct: 0.76, yPct: 0.51, tier: 2 },
+  { slotIdx: 6, xPct: 0.24, yPct: 0.35, tier: 1 },
+  { slotIdx: 7, xPct: 0.76, yPct: 0.35, tier: 1 },
+  { slotIdx: 8, xPct: 0.25, yPct: 0.19, tier: 0 },
+  { slotIdx: 9, xPct: 0.75, yPct: 0.19, tier: 0 },
 ];
 
 interface CityParticle {
@@ -64,14 +63,17 @@ export class CityWorldController {
   private shields = 0;
   private petEmoji = '🦊';
   private character: CharacterConfig;
-  private onPlotClick?: (slotIdx: number) => void;
+  private onPlotSelect?: (slotIdx: number) => void;
+
+  // Selected building plot (null when none selected yet)
+  private selectedSlotIdx: number | null = null;
 
   // Character world position & animation state
-  private charX = 230;
-  private charY = 435;
-  private targetX = 230;
-  private targetY = 435;
-  private facing: 1 | -1 = 1;
+  private charX = 220;
+  private charY = 530;
+  private targetX = 220;
+  private targetY = 530;
+  private facing: 1 | -1 = -1;
   private charState: 'idle' | 'running' | 'hammering' = 'idle';
   private activeSlotIdx = 0;
   private hammerTimer = 0;
@@ -91,7 +93,8 @@ export class CityWorldController {
     shields: number,
     petEmoji: string,
     character: CharacterConfig,
-    onPlotClick?: (slotIdx: number) => void
+    selectedSlotIdx: number | null = null,
+    onPlotSelect?: (slotIdx: number) => void
   ) {
     this.canvas = canvas;
     const context = canvas.getContext('2d');
@@ -104,19 +107,24 @@ export class CityWorldController {
     this.shields = shields;
     this.petEmoji = petEmoji;
     this.character = { ...character };
-    this.onPlotClick = onPlotClick;
+    this.selectedSlotIdx = selectedSlotIdx;
+    this.onPlotSelect = onPlotSelect;
 
-    // Position character initially next to first unfinished building
-    const firstOpen = Math.max(
-      0,
-      this.villageStars.findIndex((s) => s < STARS_PER_BUILDING)
-    );
-    const p0 = this.getPlotPixel(firstOpen);
-    this.charX = p0.x - 36;
-    this.charY = p0.y - 6;
-    this.targetX = this.charX;
-    this.targetY = this.charY;
-    this.activeSlotIdx = firstOpen;
+    // Position character initially at the selected building or on the central boulevard near the first unfinished building
+    const initialSlot =
+      selectedSlotIdx !== null
+        ? selectedSlotIdx
+        : Math.max(
+            0,
+            this.villageStars.findIndex((s) => s < STARS_PER_BUILDING)
+          );
+    const stand = this.getStandPosition(initialSlot);
+    this.charX = stand.x;
+    this.charY = stand.y;
+    this.targetX = stand.x;
+    this.targetY = stand.y;
+    this.facing = stand.facing;
+    this.activeSlotIdx = initialSlot;
 
     this.bindCanvasClick();
     this.start();
@@ -124,24 +132,24 @@ export class CityWorldController {
 
   private bindCanvasClick(): void {
     this.canvas.addEventListener('click', (ev) => {
-      if (!this.onPlotClick) return;
+      if (!this.onPlotSelect) return;
       const rect = this.canvas.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
       const clickX = ((ev.clientX - rect.left) / rect.width) * this.canvas.width;
       const clickY = ((ev.clientY - rect.top) / rect.height) * this.canvas.height;
 
       let bestIdx = -1;
-      let bestDist = 56;
+      let bestDist = 64;
       for (let i = 0; i < BUILDINGS_PER_VILLAGE; i++) {
         const pt = this.getPlotPixel(i);
-        const d = Math.hypot(clickX - pt.x, clickY - (pt.y - 10));
+        const d = Math.hypot(clickX - pt.x, clickY - (pt.y - 14));
         if (d < bestDist) {
           bestDist = d;
           bestIdx = i;
         }
       }
       if (bestIdx >= 0) {
-        this.onPlotClick(bestIdx);
+        this.onPlotSelect(bestIdx);
       }
     });
   }
@@ -154,43 +162,83 @@ export class CityWorldController {
     };
   }
 
+  /**
+   * Computes where the character stands next to building `slotIdx` (on the inner boulevard side, facing the building).
+   */
+  private getStandPosition(slotIdx: number): { x: number; y: number; facing: 1 | -1 } {
+    const pt = this.getPlotPixel(slotIdx);
+    const isLeftCol = pt.x < this.canvas.width * 0.5;
+    return {
+      x: pt.x + (isLeftCol ? 44 : -44),
+      y: pt.y + 2,
+      facing: isLeftCol ? -1 : 1,
+    };
+  }
+
   updateState(
     villageLevel: number,
     villageStars: number[],
     shields: number,
     petEmoji: string,
-    character: CharacterConfig
+    character: CharacterConfig,
+    selectedSlotIdx?: number | null
   ): void {
     this.villageLevel = villageLevel;
     this.villageStars = [...villageStars];
     this.shields = shields;
     this.petEmoji = petEmoji;
     this.character = { ...character };
+    if (selectedSlotIdx !== undefined) {
+      this.selectedSlotIdx = selectedSlotIdx;
+    }
   }
 
   /**
-   * Sends the player's mascot running to building `slotIdx` and hammering it!
+   * Step 1: When the player taps a building plot, select it and have the character immediately run over to it!
+   */
+  selectAndMoveToBuilding(slotIdx: number): void {
+    this.selectedSlotIdx = slotIdx;
+    this.activeSlotIdx = slotIdx;
+    const stand = this.getStandPosition(slotIdx);
+    this.targetX = stand.x;
+    this.targetY = stand.y;
+
+    const dx = this.targetX - this.charX;
+    const dy = this.targetY - this.charY;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 8) {
+      this.charState = 'running';
+      this.hammerTimer = 0; // Do NOT hammer yet — wait for user to tap BUILD!
+      if (Math.abs(dx) > 2) {
+        this.facing = dx >= 0 ? 1 : -1;
+      }
+    } else {
+      this.charState = 'idle';
+      this.hammerTimer = 0;
+      this.facing = stand.facing;
+    }
+  }
+
+  /**
+   * Step 2: When the player taps the BUILD button on the selected building, the character (who already ran there) hammers it!
    */
   triggerBuildAction(slotIdx: number, newLevel: number, buildingName: string, upgraded = true): void {
-    const pt = this.getPlotPixel(slotIdx);
-    const standOffset = pt.x > this.canvas.width * 0.52 ? -36 : 36;
-    this.targetX = pt.x + standOffset;
-    this.targetY = pt.y - 6;
+    this.selectedSlotIdx = slotIdx;
     this.activeSlotIdx = slotIdx;
+    const pt = this.getPlotPixel(slotIdx);
+    const stand = this.getStandPosition(slotIdx);
+    this.targetX = stand.x;
+    this.targetY = stand.y;
 
     const dx = this.targetX - this.charX;
     const dist = Math.hypot(dx, this.targetY - this.charY);
-    if (Math.abs(dx) > 2) {
-      this.facing = dx >= 0 ? 1 : -1;
-    }
 
     if (!upgraded) {
-      // Just run over to inspect if not enough coins
       this.charState = dist > 10 ? 'running' : 'idle';
       this.hammerTimer = 0;
       this.banners.push({
         x: pt.x,
-        y: pt.y - 38,
+        y: pt.y - 44,
         vy: -24,
         text: 'Need Coins!',
         color: '#ff5d8f',
@@ -199,24 +247,29 @@ export class CityWorldController {
       return;
     }
 
-    if (dist > 14) {
-      this.charState = 'running';
-      this.hammerTimer = 1.05; // Will hammer upon arrival
-    } else {
+    // If character is already near the building (or ran partway there), position right at the building and start hammering immediately!
+    if (dist <= 95) {
+      this.charX = stand.x;
+      this.charY = stand.y;
+      this.facing = stand.facing;
       this.charState = 'hammering';
       this.hammerTimer = 1.05;
       this.hammerPhase = 0;
       this.lastStrikeCount = -1;
-      // Face the building center
-      this.facing = pt.x >= this.charX ? 1 : -1;
+    } else {
+      this.charState = 'running';
+      this.hammerTimer = 1.05;
+      if (Math.abs(dx) > 2) {
+        this.facing = dx >= 0 ? 1 : -1;
+      }
     }
 
     // Immediate celebratory burst + floating level banner
     this.buildingBounce[slotIdx] = 1.0;
-    this.spawnImpactSparks(pt.x, pt.y - 14, newLevel >= STARS_PER_BUILDING ? 18 : 10);
+    this.spawnImpactSparks(pt.x, pt.y - 16, newLevel >= STARS_PER_BUILDING ? 18 : 11);
     this.banners.push({
       x: pt.x,
-      y: pt.y - 42,
+      y: pt.y - 48,
       vy: -32,
       text: newLevel >= STARS_PER_BUILDING ? `👑 ${buildingName} LV.10 MAX!` : `🔨 +1 Lv (${newLevel}/${STARS_PER_BUILDING})`,
       color: newLevel >= STARS_PER_BUILDING ? '#ffd166' : '#06d6a0',
@@ -253,17 +306,17 @@ export class CityWorldController {
       const dx = this.targetX - this.charX;
       const dy = this.targetY - this.charY;
       const dist = Math.hypot(dx, dy);
-      const speed = 430; // brisk sprint across the city!
+      const speed = 460; // brisk sprint along the city roads!
       this.stepDustTimer += dt;
-      if (this.stepDustTimer > 0.06) {
+      if (this.stepDustTimer > 0.055) {
         this.stepDustTimer = 0;
         this.particles.push({
           x: this.charX - this.facing * 6,
-          y: this.charY + 4,
+          y: this.charY + 5,
           vx: -this.facing * (15 + Math.random() * 20),
           vy: -8 - Math.random() * 12,
           size: 4 + Math.random() * 3,
-          color: 'rgba(255,255,255,0.6)',
+          color: 'rgba(255,255,255,0.65)',
           alpha: 0.85,
           kind: 'dust',
         });
@@ -272,8 +325,8 @@ export class CityWorldController {
       if (dist <= speed * dt) {
         this.charX = this.targetX;
         this.charY = this.targetY;
-        const pt = this.getPlotPixel(this.activeSlotIdx);
-        this.facing = pt.x >= this.charX ? 1 : -1;
+        const stand = this.getStandPosition(this.activeSlotIdx);
+        this.facing = stand.facing;
         if (this.hammerTimer > 0) {
           this.charState = 'hammering';
           this.hammerPhase = 0;
@@ -296,7 +349,7 @@ export class CityWorldController {
         this.lastStrikeCount = strikeIdx;
         const pt = this.getPlotPixel(this.activeSlotIdx);
         this.buildingBounce[this.activeSlotIdx] = 0.85;
-        this.spawnImpactSparks(pt.x, pt.y - 10, 9);
+        this.spawnImpactSparks(pt.x, pt.y - 12, 9);
       }
       if (this.hammerTimer <= 0) {
         this.charState = 'idle';
@@ -316,7 +369,7 @@ export class CityWorldController {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       if (p.kind !== 'dust') {
-        p.vy += 120 * dt; // gravity
+        p.vy += 120 * dt;
       }
       p.alpha -= dt * 1.65;
       if (p.alpha <= 0) {
@@ -339,13 +392,13 @@ export class CityWorldController {
     const colors = ['#ffd166', '#38bdf8', '#06d6a0', '#ff5d8f', '#ffffff'];
     for (let i = 0; i < count; i++) {
       const ang = -Math.PI + Math.random() * Math.PI;
-      const spd = 40 + Math.random() * 85;
+      const spd = 45 + Math.random() * 90;
       this.particles.push({
-        x: x + (Math.random() - 0.5) * 18,
-        y: y + (Math.random() - 0.5) * 12,
+        x: x + (Math.random() - 0.5) * 20,
+        y: y + (Math.random() - 0.5) * 14,
         vx: Math.cos(ang) * spd,
-        vy: Math.sin(ang) * spd - 20,
-        size: 2.5 + Math.random() * 2.5,
+        vy: Math.sin(ang) * spd - 22,
+        size: 2.5 + Math.random() * 2.8,
         color: colors[i % colors.length],
         alpha: 1,
         kind: i % 3 === 0 ? 'star' : 'spark',
@@ -359,117 +412,117 @@ export class CityWorldController {
     const h = canvas.height;
     const def = getVillageDef(this.villageLevel);
     const { biome } = def;
-    const totalStars = getVillageStarsCount(this.villageStars);
 
     ctx.clearRect(0, 0, w, h);
 
-    // 1. Sky backdrop
-    const sky = ctx.createLinearGradient(0, 0, 0, h * 0.34);
+    // 1. Sky backdrop (compact top horizon so the rectangular city ground is large and spacious)
+    const horizonY = h * 0.11;
+    const sky = ctx.createLinearGradient(0, 0, 0, horizonY + 20);
     sky.addColorStop(0, biome.skyTop);
     sky.addColorStop(1, biome.skyBottom);
     ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(0, 0, w, horizonY + 18);
 
     // Celestial sun/moon
     ctx.save();
-    const orbX = w * 0.87;
-    const orbY = h * 0.085;
+    const orbX = w * 0.88;
+    const orbY = h * 0.055;
     ctx.beginPath();
-    ctx.arc(orbX, orbY, 18, 0, Math.PI * 2);
+    ctx.arc(orbX, orbY, 15, 0, Math.PI * 2);
     ctx.fillStyle = biome.accent;
     ctx.globalAlpha = 0.88;
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(orbX, orbY, 30, 0, Math.PI * 2);
+    ctx.arc(orbX, orbY, 25, 0, Math.PI * 2);
     ctx.globalAlpha = 0.2;
     ctx.fill();
     ctx.restore();
 
-    // Twinkling stars
+    // Twinkling stars in sky
     ctx.fillStyle = '#ffffff';
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 14; i++) {
       const sx = ((i * 73 + this.villageLevel * 19) % (w - 16)) + 8;
-      const sy = ((i * 29 + this.villageLevel * 11) % Math.floor(h * 0.22)) + 6;
+      const sy = ((i * 23 + this.villageLevel * 11) % Math.floor(horizonY - 8)) + 5;
       ctx.globalAlpha = 0.25 + 0.35 * Math.abs(Math.sin(this.t * 2 + i));
       ctx.beginPath();
-      ctx.arc(sx, sy, i % 3 === 0 ? 1.8 : 1.1, 0, Math.PI * 2);
+      ctx.arc(sx, sy, i % 3 === 0 ? 1.6 : 1.0, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
 
-    // Distant hills silhouette
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
-    ctx.beginPath();
-    ctx.moveTo(0, h * 0.25);
-    ctx.quadraticCurveTo(w * 0.24, h * 0.14, w * 0.52, h * 0.23);
-    ctx.quadraticCurveTo(w * 0.78, h * 0.13, w, h * 0.22);
-    ctx.lineTo(w, h);
-    ctx.lineTo(0, h);
-    ctx.closePath();
-    ctx.fill();
-
-    // 2. Lush 2.5D City Terrain Ground
-    const groundTop = h * 0.20;
-    const gGrad = ctx.createLinearGradient(0, groundTop, 0, h);
+    // 2. Large Rectangular City Ground Plane (89% of the canvas height!)
+    const gGrad = ctx.createLinearGradient(0, horizonY, 0, h);
     gGrad.addColorStop(0, biome.groundColor);
-    gGrad.addColorStop(0.55, '#1e1038');
-    gGrad.addColorStop(1, '#110722');
+    gGrad.addColorStop(0.5, '#191336');
+    gGrad.addColorStop(1, '#100824');
     ctx.fillStyle = gGrad;
-    ctx.fillRect(0, groundTop, w, h - groundTop);
+    ctx.fillRect(0, horizonY, w, h - horizonY);
 
-    // Horizon glow line
+    // Subtle city block grid lines on the ground plane
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.lineWidth = 1;
+    for (let gy = horizonY + 40; gy < h; gy += 52) {
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      ctx.lineTo(w, gy);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Horizon glow border
     ctx.strokeStyle = biome.accent;
     ctx.lineWidth = 2;
-    ctx.globalAlpha = 0.45;
+    ctx.globalAlpha = 0.5;
     ctx.beginPath();
-    ctx.moveTo(0, groundTop);
-    ctx.lineTo(w, groundTop);
+    ctx.moveTo(0, horizonY);
+    ctx.lineTo(w, horizonY);
     ctx.stroke();
     ctx.globalAlpha = 1;
 
-    // 3. Winding City Roads connecting all 10 building plots
+    // 3. Rectangular City Boulevard & 5 Cross-Avenues connecting all 10 building plots
     this.drawCityRoads(ctx, biome.accent);
 
-    // Ambient biome scenery props
-    ctx.font = '16px system-ui, sans-serif';
+    // Ambient biome scenery along the edges & boulevard
+    ctx.font = '15px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const scenerySpots = [
-      [0.08, 0.28],
-      [0.92, 0.28],
-      [0.50, 0.27],
-      [0.07, 0.52],
-      [0.93, 0.52],
-      [0.50, 0.76],
+      [0.06, 0.26],
+      [0.94, 0.26],
+      [0.06, 0.58],
+      [0.94, 0.58],
+      [0.50, 0.14],
+      [0.50, 0.93],
     ];
     scenerySpots.forEach(([px, py], idx) => {
-      ctx.globalAlpha = 0.75;
+      ctx.globalAlpha = 0.72;
       ctx.fillText(biome.scenery[idx % biome.scenery.length], w * px, h * py);
     });
     ctx.globalAlpha = 1;
 
-    // 4. Draw the 10 City Buildings sorted back-to-front (tier 0 -> tier 3)
-    const drawOrder = [8, 9, 5, 6, 7, 2, 3, 4, 0, 1];
+    // 4. Draw the 10 City Buildings sorted back-to-front (row 0 -> row 4)
+    const drawOrder = [8, 9, 6, 7, 4, 5, 2, 3, 0, 1];
     for (const idx of drawOrder) {
       this.drawCityBuildingPlot(ctx, idx, def.buildings[idx], biome.accent);
     }
 
-    // Draw the player's customized character & swinging hammer clearly in the foreground
+    // 5. Draw the player's customized character & swinging hammer clearly in the foreground
     this.drawCharacterWithHammer(ctx);
 
-    // 5. Companion Pet next to character
+    // 6. Companion Pet next to character
     ctx.save();
     const petBob = Math.sin(this.t * 4) * 2.5;
-    ctx.font = '19px system-ui, sans-serif';
+    ctx.font = '18px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(this.petEmoji, this.charX - this.facing * 26, this.charY + 2 + petBob);
+    ctx.fillText(this.petEmoji, this.charX - this.facing * 26, this.charY + 4 + petBob);
     ctx.restore();
 
-    // 6. Particles (sparks, dust, stars)
+    // 7. Particles (sparks, dust, stars)
     this.drawParticles(ctx);
 
-    // 7. Floating upgrade banners
+    // 8. Floating upgrade banners
     for (const b of this.banners) {
       ctx.save();
       ctx.globalAlpha = Math.max(0, b.alpha);
@@ -482,73 +535,65 @@ export class CityWorldController {
       ctx.restore();
     }
 
-    // 8. Shield dome indicator at top-right if shields active
+    // 9. Compact shield pill at top-left only if shields > 0
     if (this.shields > 0) {
       ctx.save();
-      ctx.fillStyle = 'rgba(18, 8, 38, 0.82)';
+      ctx.fillStyle = 'rgba(18, 8, 38, 0.78)';
       ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1.4;
       ctx.beginPath();
-      ctx.roundRect(w - 94, 8, 86, 24, 12);
+      ctx.roundRect(10, 8, 72, 22, 11);
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = '#e0f2fe';
       ctx.font = 'bold 11px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`🛡️ ${this.shields} Shields`, w - 51, 20);
+      ctx.fillText(`🛡️ ${this.shields}`, 46, 19);
       ctx.restore();
     }
-
-    // 9. Top-left City Progress Badge
-    ctx.save();
-    ctx.fillStyle = 'rgba(18, 8, 38, 0.84)';
-    ctx.strokeStyle = def.isBossLevel ? '#ff5d8f' : biome.accent;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(8, 8, 224, 24, 12);
-    ctx.fill();
-    ctx.stroke();
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.font = 'bold 11px system-ui, sans-serif';
-    ctx.fillStyle = '#ffd166';
-    ctx.fillText(
-      `${def.isBossLevel ? '⚔️ BOSS ' : ''}City Lv.${def.level} • ${totalStars}/${STARS_PER_VILLAGE} Lv`,
-      16,
-      20
-    );
-    ctx.restore();
   }
 
   private drawCityRoads(ctx: CanvasRenderingContext2D, accent: string): void {
-    const roadSequence = [0, 1, 4, 3, 2, 5, 6, 7, 9, 8];
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const centerX = w * 0.5;
+    const rowYPcts = [0.19, 0.35, 0.51, 0.67, 0.83];
+
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // Outer road border
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
-    ctx.lineWidth = 22;
-    ctx.beginPath();
-    roadSequence.forEach((slotIdx, i) => {
-      const pt = this.getPlotPixel(slotIdx);
-      if (i === 0) ctx.moveTo(pt.x, pt.y + 8);
-      else ctx.lineTo(pt.x, pt.y + 8);
-    });
-    ctx.stroke();
+    const strokeRoadNetwork = () => {
+      ctx.beginPath();
+      // Grand central vertical boulevard
+      ctx.moveTo(centerX, h * 0.16);
+      ctx.lineTo(centerX, h * 0.90);
+      // 5 horizontal cross-avenues connecting Left & Right building plots
+      for (const yPct of rowYPcts) {
+        const y = h * yPct + 8;
+        ctx.moveTo(w * 0.22, y);
+        ctx.lineTo(w * 0.78, y);
+      }
+      ctx.stroke();
+    };
 
-    // Inner paved asphalt/cobble road
-    ctx.strokeStyle = 'rgba(15, 23, 42, 0.65)';
-    ctx.lineWidth = 16;
-    ctx.stroke();
+    // Road curb / sidewalk
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.lineWidth = 24;
+    strokeRoadNetwork();
+
+    // Inner dark asphalt road
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.72)';
+    ctx.lineWidth = 17;
+    strokeRoadNetwork();
 
     // Center glowing lane dashes
     ctx.strokeStyle = accent;
-    ctx.globalAlpha = 0.45;
+    ctx.globalAlpha = 0.42;
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 6]);
-    ctx.stroke();
+    strokeRoadNetwork();
     ctx.restore();
   }
 
@@ -562,6 +607,7 @@ export class CityWorldController {
     const pt = this.getPlotPixel(slotIdx);
     const lv = Math.max(0, Math.min(STARS_PER_BUILDING, this.villageStars[slotIdx] ?? 0));
     const isMax = lv >= STARS_PER_BUILDING;
+    const isSelected = this.selectedSlotIdx === slotIdx;
     const bounce = this.buildingBounce[slotIdx] ?? 0;
     const scaleX = 1 + Math.sin(bounce * Math.PI) * 0.16;
     const scaleY = 1 - Math.sin(bounce * Math.PI) * 0.14;
@@ -570,49 +616,73 @@ export class CityWorldController {
     ctx.translate(pt.x, pt.y);
     ctx.scale(scaleX, scaleY);
 
+    // Selected plot pulsing spotlight ring
+    if (isSelected) {
+      const pulse = 1 + Math.sin(this.t * 6) * 0.07;
+      ctx.save();
+      ctx.scale(pulse, pulse);
+      ctx.fillStyle = 'rgba(255, 209, 102, 0.24)';
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.ellipse(0, 6, 48, 17, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // 1. Isometric Plaza Pad / Pedestal
     ctx.fillStyle = isMax
       ? 'rgba(250, 204, 21, 0.36)'
       : lv > 0
-        ? 'rgba(56, 189, 248, 0.22)'
-        : 'rgba(15, 23, 42, 0.55)';
-    ctx.strokeStyle = isMax ? '#ffd166' : lv > 0 ? accent : 'rgba(255, 255, 255, 0.32)';
-    ctx.lineWidth = isMax ? 2.2 : 1.5;
+        ? 'rgba(56, 189, 248, 0.24)'
+        : 'rgba(15, 23, 42, 0.62)';
+    ctx.strokeStyle = isSelected
+      ? '#ffd166'
+      : isMax
+        ? '#ffd166'
+        : lv > 0
+          ? accent
+          : 'rgba(255, 255, 255, 0.32)';
+    ctx.lineWidth = isSelected || isMax ? 2.4 : 1.6;
     ctx.beginPath();
-    ctx.ellipse(0, 6, 36, 12, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 6, 40, 13, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
     if (lv === 0) {
-      // Construction site plot (Lv.0/10) with scaffolding & hazard stripes
+      // Construction site plot (Lv.0/10) with scaffolding & preview icon
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
+      ctx.fillRect(-24, -30, 48, 32);
+
       ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = 1.7;
       ctx.setLineDash([4, 3]);
-      ctx.strokeRect(-22, -26, 44, 28);
+      ctx.strokeRect(-24, -30, 48, 32);
       ctx.setLineDash([]);
 
       // Scaffolding crossbeams
-      ctx.strokeStyle = 'rgba(251, 191, 36, 0.55)';
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.5)';
       ctx.lineWidth = 1.4;
       ctx.beginPath();
-      ctx.moveTo(-20, -24);
-      ctx.lineTo(20, 0);
-      ctx.moveTo(20, -24);
-      ctx.lineTo(-20, 0);
+      ctx.moveTo(-22, -28);
+      ctx.lineTo(22, 0);
+      ctx.moveTo(22, -28);
+      ctx.lineTo(-22, 0);
       ctx.stroke();
 
-      // Ghosted building preview icon
-      ctx.globalAlpha = 0.55;
-      ctx.font = '21px system-ui, sans-serif';
+      // Building preview icon
+      ctx.globalAlpha = 0.82;
+      ctx.font = '24px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(b.emoji, 0, -13);
+      ctx.fillText(b.emoji, 0, -14);
       ctx.globalAlpha = 1;
     } else {
       // 2.5D Architectural Building that grows from Lv.1 to Lv.10!
-      const bw = 34 + Math.min(10, lv) * 1.1;
-      const bh = 22 + lv * 3.1;
-      const depth = 9;
+      const bw = 38 + Math.min(10, lv) * 1.3;
+      const bh = 26 + lv * 3.3;
+      const depth = 10;
 
       const wallPalettes = [
         ['#38bdf8', '#0284c7'],
@@ -648,15 +718,15 @@ export class CityWorldController {
       // Illuminated windows corresponding to building level (1..10)
       const cols = 3;
       const rows = Math.min(4, Math.ceil(lv / 2.5));
-      const winW = 5;
-      const winH = 4.5;
+      const winW = 5.5;
+      const winH = 5;
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           const lit = r * cols + c < lv;
           ctx.fillStyle = lit ? '#fef08a' : 'rgba(15, 23, 42, 0.45)';
-          const wx = -bw / 2 + 5 + c * ((bw - 10) / 2.3);
-          const wy = 2 - bh + 6 + r * 8;
-          if (wy < -8) {
+          const wx = -bw / 2 + 6 + c * ((bw - 12) / 2.3);
+          const wy = 2 - bh + 6 + r * 8.5;
+          if (wy < -9) {
             ctx.fillRect(wx, wy, winW, winH);
           }
         }
@@ -665,7 +735,7 @@ export class CityWorldController {
       // Grand entrance door
       ctx.fillStyle = isMax ? '#78350f' : '#0f172a';
       ctx.beginPath();
-      ctx.roundRect(-5, -8, 10, 10, [4, 4, 0, 0]);
+      ctx.roundRect(-5.5, -9, 11, 11, [4, 4, 0, 0]);
       ctx.fill();
 
       // Pitched / domed roof & spire
@@ -674,14 +744,14 @@ export class CityWorldController {
       ctx.lineWidth = 1.4;
       ctx.beginPath();
       ctx.moveTo(-bw / 2 - 3, 2 - bh);
-      ctx.lineTo(0, 2 - bh - 13);
+      ctx.lineTo(0, 2 - bh - 14);
       ctx.lineTo(bw / 2 + depth + 2, 2 - bh - depth * 0.5);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
 
       // Building thematic icon emblem on roof peak
-      ctx.font = `${isMax ? 23 : 20}px system-ui, sans-serif`;
+      ctx.font = `${isMax ? 24 : 21}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(b.emoji, 0, 2 - bh - 8);
@@ -689,8 +759,8 @@ export class CityWorldController {
       // Golden MAX crown & sparkles at Lv.10
       if (isMax) {
         const sparkOff = Math.sin(this.t * 5 + slotIdx) * 3;
-        ctx.font = '13px system-ui, sans-serif';
-        ctx.fillText('👑', 0, 2 - bh - 23 + sparkOff);
+        ctx.font = '14px system-ui, sans-serif';
+        ctx.fillText('👑', 0, 2 - bh - 24 + sparkOff);
       }
     }
 
@@ -718,11 +788,11 @@ export class CityWorldController {
     // Ground shadow
     ctx.fillStyle = 'rgba(0, 0, 0, 0.38)';
     ctx.beginPath();
-    ctx.ellipse(0, 8, 13, 4.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 9, 14, 5, 0, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.translate(0, bob);
-    ctx.scale(this.facing * 1.22, 1.22);
+    ctx.scale(this.facing * 1.24, 1.24);
 
     // 1. Optional Aura
     if (this.character.auraId && this.character.auraId !== 'aura_none') {
