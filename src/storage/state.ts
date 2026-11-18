@@ -3,6 +3,7 @@ import {
   CARDS,
   CardItem,
   KINGDOM_BUILDINGS,
+  PetId,
   QUEST_TEMPLATES,
   SLOT_MACHINES,
   STARTER_COINS,
@@ -13,6 +14,15 @@ import { JackpotKey } from '../game/slotEngine';
 export interface QuestProgressState {
   progress: number;
   claimed: boolean;
+}
+
+export interface SimOfferProcessingState {
+  offerId: 'streak_save' | 'viking_key' | 'fox_mega';
+  title: string;
+  priceLabel: string;
+  rewardSummary: string;
+  until: number;
+  durationMs: number;
 }
 
 export interface GameState {
@@ -58,6 +68,21 @@ export interface GameState {
   wheelSpins: number;
   wheelSpinsInitialized: boolean;
   slotsFreePlay: boolean;
+  // Crazy Fox / Coin Master / Stake Originals expansion
+  gashaponTokens: number;
+  petTreats: number;
+  activePetId: PetId;
+  petBoostUntil: number | null;
+  puzzleChapterIdx: number;
+  puzzlePieces: number[];
+  duplicateStars: number;
+  jokerCards: number;
+  vikingStep: number;
+  vikingStage: number;
+  crashHistory: number[];
+  revengeReady: boolean;
+  rivalTargetName: string;
+  simOfferProcessing: SimOfferProcessingState | null;
 }
 
 export function getCurrentMonthKey(d = new Date()): string {
@@ -170,6 +195,20 @@ export function createInitialState(deviceId = generateFallbackDeviceId()): GameS
     wheelSpins: 150,
     wheelSpinsInitialized: true,
     slotsFreePlay: false,
+    gashaponTokens: 3,
+    petTreats: 5,
+    activePetId: 'foxy',
+    petBoostUntil: null,
+    puzzleChapterIdx: 0,
+    puzzlePieces: [0, 1],
+    duplicateStars: 0,
+    jokerCards: 1,
+    vikingStep: 0,
+    vikingStage: 1,
+    crashHistory: [1.84, 3.12, 1.04, 2.45, 6.2, 1.31],
+    revengeReady: false,
+    rivalTargetName: 'Crazy Foxy 🦊',
+    simOfferProcessing: null,
   };
 }
 
@@ -195,6 +234,10 @@ export function loadGameState(deviceId?: string): GameState {
       quests: { ...initial.quests, ...(parsed.quests ?? {}) },
       character: { ...DEFAULT_CHARACTER, ...(parsed.character ?? {}) },
       ownedShopItems: Array.from(new Set([...initial.ownedShopItems, ...(parsed.ownedShopItems ?? [])])),
+      puzzlePieces: Array.isArray(parsed.puzzlePieces)
+        ? Array.from(new Set(parsed.puzzlePieces.filter((n) => typeof n === 'number' && n >= 0 && n < 9)))
+        : initial.puzzlePieces,
+      crashHistory: Array.isArray(parsed.crashHistory) ? parsed.crashHistory.slice(0, 8) : initial.crashHistory,
       sessionStartAt: Date.now(),
       slotsFreePlay: false,
       monthlySpentEur: 0,
@@ -275,17 +318,21 @@ export function incrementQuest(
   });
 }
 
-export function openCardChest(state: GameState): CardItem[] {
+export function openCardChest(state: GameState, count = 3): CardItem[] {
   const drawn: CardItem[] = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < count; i++) {
     const missing = CARDS.filter((c) => !state.cards[c.id]);
     let picked: CardItem;
-    if (missing.length > 0 && Math.random() < 0.65) {
+    if (missing.length > 0 && Math.random() < 0.62) {
       picked = missing[Math.floor(Math.random() * missing.length)];
     } else {
       picked = CARDS[Math.floor(Math.random() * CARDS.length)];
     }
-    state.cards[picked.id] = (state.cards[picked.id] ?? 0) + 1;
+    const prev = state.cards[picked.id] ?? 0;
+    if (prev > 0) {
+      state.duplicateStars += picked.stars;
+    }
+    state.cards[picked.id] = prev + 1;
     drawn.push(picked);
   }
   return drawn;

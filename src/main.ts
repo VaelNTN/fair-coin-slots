@@ -13,18 +13,41 @@ import {
   CharacterSpecies,
   formatCoins,
   formatCoinsFull,
+  HIGH_ROLLER_EXTRA_BETS,
+  KENO_PAYOUTS,
   KINGDOM_BUILDINGS,
+  PET_CATALOG,
+  PetId,
   QUEST_TEMPLATES,
+  ROULETTE_RED_NUMS,
   SEASON_PASS_STEPS,
   SHOP_ITEMS,
   ShopCategory,
   SLOT_MACHINES,
   SlotMachineTheme,
   SlotSymbol,
+  VIKING_QUEST_STEPS,
   WHEEL_SLICES,
 } from './data/machines';
 import { CoinDozerController, PlinkoController } from './game/arcadeGames';
+import {
+  drawHiLoOutcomeCard,
+  drawKenoRound,
+  drawRandomCard,
+  evaluateRouletteBet,
+  formatHiLoRank,
+  GASHAPON_COIN_COST,
+  getActiveFlashEvent,
+  getActivePetBoost,
+  getCurrentPuzzleChapter,
+  grantRandomPuzzlePiece,
+  HiLoCard,
+  PET_BOOST_DURATION_MS,
+  PET_TREATS_SHOP_COST,
+  RouletteBetType,
+} from './game/expansionLogic';
 import { MascotRenderer } from './game/mascotRenderer';
+import { CrashRocketCanvas, GashaponCanvas, RouletteWheelCanvas } from './game/newMinigames';
 import { SoundFX } from './game/SoundFX';
 import {
   generateHoldCoinValue,
@@ -46,11 +69,13 @@ import {
   openCardChest,
   resolveDeviceId,
   saveGameState,
+  SimOfferProcessingState,
   xpNeededForLevel,
 } from './storage/state';
 
 type TabId = 'slots' | 'arcade' | 'character' | 'bonuses';
-type ArcadeSubTab = 'dozer' | 'plinko' | 'highroller' | 'scratch' | 'village';
+type ArcadeSubTab = 'crash' | 'casino' | 'fox' | 'highroller' | 'dozer' | 'plinko' | 'scratch' | 'village';
+type CharacterSubTab = 'studio' | 'pets';
 type BonusSubTab = 'wheel' | 'cards' | 'pass';
 
 const HALF_HOUR_MS = 30 * 60 * 1000;
@@ -58,6 +83,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const VIP_PASS_DURATION_MS = 5 * 60 * 1000;
 const SCRATCH_CARD_COST = 15_000_000;
 const RAID_COST = 20_000_000;
+const CANNON_COST = 25_000_000;
 const VAULT_MULTS = [1.35, 1.85, 2.6, 4.0, 6.5];
 
 class FairCoinSlotsApp {
@@ -68,9 +94,13 @@ class FairCoinSlotsApp {
   private previewCharacter: MascotRenderer | null = null;
   private dozerCtrl: CoinDozerController | null = null;
   private plinkoCtrl: PlinkoController | null = null;
+  private crashCtrl: CrashRocketCanvas | null = null;
+  private rouletteCtrl: RouletteWheelCanvas | null = null;
+  private gashaponCtrl: GashaponCanvas | null = null;
 
   private activeTab: TabId = 'slots';
-  private arcadeSub: ArcadeSubTab = 'dozer';
+  private arcadeSub: ArcadeSubTab = 'crash';
+  private characterSub: CharacterSubTab = 'studio';
   private bonusSub: BonusSubTab = 'wheel';
   private shopCategory: ShopCategory = 'outfit';
 
@@ -80,6 +110,7 @@ class FairCoinSlotsApp {
   private turboSpin = false;
   private autoSpinTimer: number | null = null;
   private moodTimer: number | null = null;
+  private balloonTimer: number | null = null;
   private currentGrid: SlotSymbol[][];
   private winningCells = new Set<string>();
   private winningLines: WinningLine[] = [];
@@ -115,6 +146,20 @@ class FairCoinSlotsApp {
   private raidRevealed: boolean[] = [false, false, false, false];
   private raidValues: number[] = [];
 
+  // New expansion minigames state
+  private crashBet = 100_000_000;
+  private hiloBet = 50_000_000;
+  private hiloActive = false;
+  private hiloCard: HiLoCard = drawRandomCard();
+  private hiloStreak = 0;
+  private hiloMult = 1.0;
+  private rouletteBet = 50_000_000;
+  private rouletteBetType: RouletteBetType = 'red';
+  private rouletteLastNum: number | null = null;
+  private kenoBet = 25_000_000;
+  private kenoPicks: number[] = [3, 7, 12, 18, 22];
+  private kenoDrawn: number[] = [];
+
   constructor(root: HTMLElement, initialState: GameState) {
     this.root = root;
     this.state = initialState;
@@ -130,6 +175,7 @@ class FairCoinSlotsApp {
     this.renderAll();
     this.startSessionTicker();
     this.startVipPassTicker();
+    this.scheduleNextBalloon();
   }
 
   private scheduleGlobalSync(delayMs = 2500): void {
@@ -281,6 +327,12 @@ class FairCoinSlotsApp {
     this.dozerCtrl = null;
     this.plinkoCtrl?.destroy();
     this.plinkoCtrl = null;
+    this.crashCtrl?.destroy();
+    this.crashCtrl = null;
+    this.rouletteCtrl?.destroy();
+    this.rouletteCtrl = null;
+    this.gashaponCtrl?.destroy();
+    this.gashaponCtrl = null;
     this.previewCharacter?.destroy();
     this.previewCharacter = null;
 
@@ -295,6 +347,65 @@ class FairCoinSlotsApp {
       this.wheelPendingSettle = null;
       settle?.();
     }
+  }
+
+  private scheduleNextBalloon(): void {
+    if (this.balloonTimer !== null) window.clearTimeout(this.balloonTimer);
+    const delayMs = 28_000 + Math.floor(Math.random() * 22_000);
+    this.balloonTimer = window.setTimeout(() => {
+      this.balloonTimer = null;
+      if (!document.hidden) {
+        this.spawnFrenzyBalloon();
+      }
+      this.scheduleNextBalloon();
+    }, delayMs);
+  }
+
+  private spawnFrenzyBalloon(): void {
+    if (document.querySelector('.frenzy-balloon')) return;
+    const colors = [
+      'radial-gradient(circle at 30% 30%, #ff85a1, #ff5d8f)',
+      'radial-gradient(circle at 30% 30%, #72efdd, #4cc9f0)',
+      'radial-gradient(circle at 30% 30%, #ffe066, #ff9f1c)',
+      'radial-gradient(circle at 30% 30%, #d8b4fe, #9b5de5)',
+    ];
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'frenzy-balloon';
+    el.style.left = `${12 + Math.random() * 72}%`;
+    el.style.background = colors[Math.floor(Math.random() * colors.length)];
+    el.innerHTML = `<span style="font-size:22px;">🎈</span><span>TAP!</span>`;
+
+    el.addEventListener('click', () => {
+      el.remove();
+      const roll = Math.random();
+      let msg = '';
+      if (roll < 0.35) {
+        this.state.gashaponTokens += 1;
+        msg = '🎈 Balloon Pop! +1 🫧 Gashapon Token!';
+      } else if (roll < 0.65) {
+        this.state.petTreats += 2;
+        msg = '🎈 Balloon Pop! +2 🍖 Pet Treats!';
+      } else if (roll < 0.9) {
+        const coins = (40 + Math.floor(Math.random() * 60)) * 1_000_000;
+        this.state.coins += coins;
+        this.state.totalWon += coins;
+        msg = `🎈 Balloon Pop! +🪙 ${formatCoins(coins)}!`;
+      } else {
+        this.state.chests += 1;
+        msg = '🎈 Balloon Pop! +1 🎁 Treasure Chest!';
+      }
+      saveGameState(this.state);
+      this.sfx.playBigWin();
+      this.spawnConfettiBurst(18);
+      this.showToast(msg);
+      this.renderHud();
+    });
+
+    document.body.appendChild(el);
+    window.setTimeout(() => {
+      if (el.isConnected) el.remove();
+    }, 8600);
   }
 
   private switchTab(tab: TabId): void {
@@ -335,25 +446,60 @@ class FairCoinSlotsApp {
       window.clearInterval(this.vipPassTickerId);
     }
     const tick = () => {
+      // Tick Monthly VIP Pass
       const until = this.state.passProcessingUntil;
-      if (!until) return;
-      const remaining = until - Date.now();
-      if (remaining <= 0) {
-        this.completeVipPassPurchase();
-        return;
+      if (until) {
+        const remaining = until - Date.now();
+        if (remaining <= 0) {
+          this.completeVipPassPurchase();
+        } else {
+          const mmss = this.formatMmSs(remaining);
+          const pct = Math.min(100, Math.max(2, Math.round(((VIP_PASS_DURATION_MS - remaining) / VIP_PASS_DURATION_MS) * 100)));
+          const cdEl = this.root.querySelector<HTMLElement>('#vip-pass-countdown');
+          if (cdEl) cdEl.textContent = mmss;
+          const fillEl = this.root.querySelector<HTMLElement>('#vip-pass-progress');
+          if (fillEl) fillEl.style.width = `${pct}%`;
+          const msgEl = this.root.querySelector<HTMLElement>('#vip-pass-status');
+          if (msgEl) msgEl.textContent = this.getVipLoadingStatus(remaining);
+          const pillEl = this.root.querySelector<HTMLElement>('#vip-quick-timer');
+          if (pillEl) pillEl.textContent = mmss;
+          const cardTimerEl = this.root.querySelector<HTMLElement>('#vip-card-timer');
+          if (cardTimerEl) cardTimerEl.textContent = mmss;
+        }
       }
-      const mmss = this.formatMmSs(remaining);
-      const pct = Math.min(100, Math.max(2, Math.round(((VIP_PASS_DURATION_MS - remaining) / VIP_PASS_DURATION_MS) * 100)));
-      const cdEl = this.root.querySelector<HTMLElement>('#vip-pass-countdown');
-      if (cdEl) cdEl.textContent = mmss;
-      const fillEl = this.root.querySelector<HTMLElement>('#vip-pass-progress');
-      if (fillEl) fillEl.style.width = `${pct}%`;
-      const msgEl = this.root.querySelector<HTMLElement>('#vip-pass-status');
-      if (msgEl) msgEl.textContent = this.getVipLoadingStatus(remaining);
-      const pillEl = this.root.querySelector<HTMLElement>('#vip-quick-timer');
-      if (pillEl) pillEl.textContent = mmss;
-      const cardTimerEl = this.root.querySelector<HTMLElement>('#vip-card-timer');
-      if (cardTimerEl) cardTimerEl.textContent = mmss;
+
+      // Tick generic simulated €0.00 offers
+      const sim = this.state.simOfferProcessing;
+      if (sim) {
+        const rem = sim.until - Date.now();
+        if (rem <= 0) {
+          this.completeSimOfferPurchase();
+        } else {
+          const simMmSs = this.formatMmSs(rem);
+          const simPct = Math.min(100, Math.max(2, Math.round(((sim.durationMs - rem) / sim.durationMs) * 100)));
+          const sCd = this.root.querySelector<HTMLElement>('#sim-offer-countdown');
+          if (sCd) sCd.textContent = simMmSs;
+          const sFill = this.root.querySelector<HTMLElement>('#sim-offer-progress');
+          if (sFill) sFill.style.width = `${simPct}%`;
+          const sBtn = this.root.querySelector<HTMLElement>('#sim-offer-inline-timer');
+          if (sBtn) sBtn.textContent = simMmSs;
+        }
+      }
+
+      // Tick Flash Event & Pet Boost timers in UI
+      const flash = getActiveFlashEvent();
+      const flashEl = this.root.querySelector<HTMLElement>('#flash-event-timer');
+      if (flashEl) flashEl.textContent = this.formatMmSs(flash.remainingMs);
+
+      const petBoost = getActivePetBoost(this.state);
+      const petTimerEl = this.root.querySelector<HTMLElement>('#pet-boost-timer');
+      if (petTimerEl) {
+        petTimerEl.textContent = petBoost.pet ? this.formatMmSs(petBoost.remainingMs) : 'Asleep';
+      }
+      const hudPetTimer = this.root.querySelector<HTMLElement>('#hud-pet-timer');
+      if (hudPetTimer) {
+        hudPetTimer.textContent = petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦊 Feed Pet';
+      }
     };
     tick();
     this.vipPassTickerId = window.setInterval(tick, 1000);
@@ -459,10 +605,21 @@ class FairCoinSlotsApp {
     return `<svg class="payline-svg" viewBox="0 0 500 184" preserveAspectRatio="none">${lines.join('')}</svg>`;
   }
 
+  private getSlotBetSteps(): number[] {
+    const { event } = getActiveFlashEvent();
+    return event.id === 'high_roller' ? [...BET_STEPS, ...HIGH_ROLLER_EXTRA_BETS] : BET_STEPS;
+  }
+
   private renderSlotsTab(bannerText?: string, isBig = false): void {
     const panel = this.root.querySelector<HTMLElement>('#tab-slots')!;
     const machine = this.getActiveMachine();
-    const bet = BET_STEPS[this.state.betIndex] ?? BET_STEPS[0];
+    const betSteps = this.getSlotBetSteps();
+    if (this.state.betIndex >= betSteps.length) {
+      this.state.betIndex = betSteps.length - 1;
+    }
+    const bet = betSteps[this.state.betIndex] ?? betSteps[0];
+    const flash = getActiveFlashEvent();
+    const petBoost = getActivePetBoost(this.state);
 
     const vipPillHtml = this.isPassProcessing()
       ? `<button class="vip-pill" id="btn-vip-quick"><span class="vip-mini-dot"></span><span>VIP <span id="vip-quick-timer">${this.formatMmSs(this.state.passProcessingUntil! - Date.now())}</span></span></button>`
@@ -470,7 +627,16 @@ class FairCoinSlotsApp {
         ? `<button class="vip-pill" style="border-color:#06d6a0;" id="btn-vip-quick">👑 VIP 3x ON</button>`
         : `<button class="vip-pill" id="btn-vip-quick">👑 €5 VIP Pass (€0)</button>`;
 
+    const petPillHtml = `<button class="pet-status-pill" id="btn-hud-pet"><span id="hud-pet-timer">${
+      petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦊 Feed Pet'
+    }</span></button>`;
+
     panel.innerHTML = `
+      <div class="flash-event-banner" style="border-color:${flash.event.color};">
+        <span>${flash.event.emoji} <b>${flash.event.name}:</b> ${flash.event.desc}</span>
+        <span style="color:${flash.event.color};white-space:nowrap;" id="flash-event-timer">${this.formatMmSs(flash.remainingMs)}</span>
+      </div>
+
       <div class="machine-strip">
         ${SLOT_MACHINES.map((m) => {
           const unlocked = this.state.level >= m.unlockLevel;
@@ -497,7 +663,7 @@ class FairCoinSlotsApp {
         ${
           this.state.freeSpins > 0
             ? `<span class="freespin-pill">🎟️ ${this.state.freeSpins} FREE (${this.state.freeSpinMultiplier}x)</span>`
-            : ''
+            : petPillHtml
         }
         ${
           this.lastGambleAmount > 0 && !this.isSpinning
@@ -532,7 +698,7 @@ class FairCoinSlotsApp {
         </div>
 
         <div class="win-banner ${isBig ? 'big' : ''}" id="win-banner">
-          ${bannerText ?? 'Spin & win! 3x 🎟️ = Free Spins • 5+ 🪙 = Coin Grab'}
+          ${bannerText ?? 'Spin & win! Collect 🧩 Puzzle pieces, 🍖 Treats & 🫧 Tokens'}
         </div>
         <div class="marquee-lights">${this.buildMarqueeBulbs(11)}</div>
       </div>
@@ -591,6 +757,11 @@ class FairCoinSlotsApp {
       this.renderAll();
     });
 
+    panel.querySelector('#btn-hud-pet')?.addEventListener('click', () => {
+      this.characterSub = 'pets';
+      this.switchTab('character');
+    });
+
     panel.querySelector('#btn-gamble-win')?.addEventListener('click', () => this.openGambleModal());
     panel.querySelector('#btn-vip-quick')?.addEventListener('click', () => this.handleVipPassAction());
 
@@ -606,7 +777,8 @@ class FairCoinSlotsApp {
 
     panel.querySelector('#btn-bet-up')?.addEventListener('click', () => {
       if (this.isSpinning) return;
-      if (this.state.betIndex < BET_STEPS.length - 1) {
+      const steps = this.getSlotBetSteps();
+      if (this.state.betIndex < steps.length - 1) {
         this.state.betIndex++;
         this.sfx.playTap();
         saveGameState(this.state);
@@ -697,16 +869,20 @@ class FairCoinSlotsApp {
       this.autoSpinTimer = null;
     }
 
-    const bet = BET_STEPS[this.state.betIndex] ?? BET_STEPS[0];
+    const betSteps = this.getSlotBetSteps();
+    if (this.state.betIndex >= betSteps.length) {
+      this.state.betIndex = betSteps.length - 1;
+    }
+    const bet = betSteps[this.state.betIndex] ?? betSteps[0];
     const usingFreeSpin = this.state.freeSpins > 0;
 
     if (!usingFreeSpin && this.state.coins < bet) {
-      if (this.state.coins < BET_STEPS[0]) {
+      if (this.state.coins < betSteps[0]) {
         this.autoSpin = false;
         this.claimRescueBonus();
         return;
       }
-      while (this.state.betIndex > 0 && BET_STEPS[this.state.betIndex] > this.state.coins) {
+      while (this.state.betIndex > 0 && betSteps[this.state.betIndex] > this.state.coins) {
         this.state.betIndex--;
       }
       this.showToast('Bet adjusted to match your coins.');
@@ -792,12 +968,21 @@ class FairCoinSlotsApp {
   }
 
   private async applySpinOutcome(result: SpinResult, bet: number): Promise<void> {
-    if (result.totalWin > 0) {
-      this.state.coins += result.totalWin;
-      this.state.totalWon += result.totalWin;
+    const flash = getActiveFlashEvent();
+    const petBoost = getActivePetBoost(this.state);
+
+    let winBoostFactor = 1;
+    if (flash.event.id === 'cash_frenzy') winBoostFactor += 0.35;
+    if (petBoost.pet?.id === 'tiger') winBoostFactor += 0.25;
+
+    const finalWin = result.jackpotWon ? result.totalWin : Math.round(result.totalWin * winBoostFactor);
+
+    if (finalWin > 0) {
+      this.state.coins += finalWin;
+      this.state.totalWon += finalWin;
       incrementQuest(this.state, 'wins', 1);
       if (!result.jackpotWon && !this.autoSpin) {
-        this.lastGambleAmount = result.totalWin;
+        this.lastGambleAmount = finalWin;
       }
     }
 
@@ -816,6 +1001,35 @@ class FairCoinSlotsApp {
       this.state.freeSpinMultiplier = this.state.fairPassActive ? 3 : 2;
     }
 
+    // Bonus Crazy Fox / Coin Master style collectibles dropped from spins
+    const extraDrops: string[] = [];
+    const puzzleChance = flash.event.id === 'cards_boom' ? 0.32 : 0.16;
+    if (Math.random() < puzzleChance) {
+      const puz = grantRandomPuzzlePiece(this.state);
+      if (puz.completedChapter) {
+        extraDrops.push(`🧩 Puzzle Complete! +${formatCoins(puz.completedChapter.rewardCoins)} +🃏 Joker`);
+      } else if (puz.pieceIdx !== null) {
+        extraDrops.push(`🧩 Puzzle #${puz.pieceIdx + 1}`);
+      }
+    }
+    if (Math.random() < 0.12) {
+      this.state.petTreats += 1;
+      extraDrops.push('+1 🍖 Treat');
+    }
+    if (Math.random() < 0.08) {
+      this.state.gashaponTokens += 1;
+      extraDrops.push('+1 🫧 Token');
+    }
+    if (Math.random() < 0.08 && !this.state.revengeReady) {
+      if (this.state.shields > 0) {
+        this.state.shields -= 1;
+        extraDrops.push('🛡️ Shield blocked Rival Foxy!');
+      } else {
+        this.state.revengeReady = true;
+        extraDrops.push('🦊 Rival Foxy raided you! 2x REVENGE ready!');
+      }
+    }
+
     this.winningLines = result.winningLines;
     result.winningLines.forEach((wl) => {
       for (let c = 0; c < wl.matchCount; c++) {
@@ -823,7 +1037,8 @@ class FairCoinSlotsApp {
       }
     });
 
-    const xpInfo = grantXp(this.state, result.xpGain);
+    const xpMult = petBoost.pet?.id === 'rhino' ? 1.25 : 1;
+    const xpInfo = grantXp(this.state, Math.round(result.xpGain * xpMult));
     saveGameState(this.state);
     this.scheduleGlobalSync();
 
@@ -831,7 +1046,7 @@ class FairCoinSlotsApp {
     let isBig = false;
 
     if (result.jackpotWon) {
-      msg = `🏆 ${result.jackpotWon.key.toUpperCase()} JACKPOT! +${formatCoins(result.totalWin)} coins!`;
+      msg = `🏆 ${result.jackpotWon.key.toUpperCase()} JACKPOT! +${formatCoins(finalWin)} coins!`;
       isBig = true;
       this.hudCharacter?.setMood('bigwin');
       this.sfx.playBigWin();
@@ -840,14 +1055,14 @@ class FairCoinSlotsApp {
     } else if (result.winTier === 'epic' || result.winTier === 'mega' || result.winTier === 'big') {
       const label =
         result.winTier === 'epic' ? 'EPIC WIN' : result.winTier === 'mega' ? 'MEGA WIN' : 'BIG WIN';
-      msg = `🎉 ${label}! +${formatCoins(result.totalWin)} coins!`;
+      msg = `🎉 ${label}! +${formatCoins(finalWin)} coins!`;
       isBig = true;
       this.hudCharacter?.setMood('bigwin');
       this.sfx.playBigWin();
       this.spawnCoinShower(22);
       this.spawnCoinFountain(18);
-    } else if (result.totalWin > 0) {
-      msg = `✨ Won +${formatCoins(result.totalWin)} coins (${result.winningLines.length} line${result.winningLines.length === 1 ? '' : 's'})`;
+    } else if (finalWin > 0) {
+      msg = `✨ Won +${formatCoins(finalWin)} coins (${result.winningLines.length} line${result.winningLines.length === 1 ? '' : 's'})`;
       this.hudCharacter?.setMood('bonus');
       this.sfx.playWin();
       this.spawnCoinShower(8);
@@ -859,6 +1074,9 @@ class FairCoinSlotsApp {
     if (result.awardedFreeSpins > 0) {
       msg += ` • +${result.awardedFreeSpins} Free Spins!`;
       isBig = true;
+    }
+    if (extraDrops.length > 0) {
+      msg += ` • ${extraDrops.join(' • ')}`;
     }
 
     this.renderHud();
@@ -957,22 +1175,26 @@ class FairCoinSlotsApp {
     renderModal(false);
   }
 
-  // ===================== 2. ARCADE TAB (Dozer, Plinko, High-Roller, Lucky Games, Village & Raid) =====================
+  // ===================== 2. ARCADE TAB (Crash, Casino, Fox Gashapon, Dozer, Plinko, High-Roller, Lucky Games, Village & Cannon) =====================
   private renderArcadeTab(): void {
     const panel = this.root.querySelector<HTMLElement>('#tab-arcade')!;
     panel.innerHTML = `
       <div class="subtab-strip">
-        <button class="subtab-btn ${this.arcadeSub === 'dozer' ? 'active' : ''}" data-sub="dozer">🪙 Coin Dozer</button>
+        <button class="subtab-btn ${this.arcadeSub === 'crash' ? 'active' : ''}" data-sub="crash">🚀 Crash & Hi-Lo</button>
+        <button class="subtab-btn ${this.arcadeSub === 'casino' ? 'active' : ''}" data-sub="casino">🎡 Roulette & Keno</button>
+        <button class="subtab-btn ${this.arcadeSub === 'fox' ? 'active' : ''}" data-sub="fox">🫧 Fox Gashapon</button>
+        <button class="subtab-btn ${this.arcadeSub === 'highroller' ? 'active' : ''}" data-sub="highroller">🔥 Flip & Mines</button>
+        <button class="subtab-btn ${this.arcadeSub === 'dozer' ? 'active' : ''}" data-sub="dozer">🪙 Dozer</button>
         <button class="subtab-btn ${this.arcadeSub === 'plinko' ? 'active' : ''}" data-sub="plinko">🟢 Plinko</button>
-        <button class="subtab-btn ${this.arcadeSub === 'highroller' ? 'active' : ''}" data-sub="highroller">🔥 High-Roller</button>
-        <button class="subtab-btn ${this.arcadeSub === 'scratch' ? 'active' : ''}" data-sub="scratch">🎲 Lucky Games</button>
-        <button class="subtab-btn ${this.arcadeSub === 'village' ? 'active' : ''}" data-sub="village">🏘️ Village</button>
+        <button class="subtab-btn ${this.arcadeSub === 'scratch' ? 'active' : ''}" data-sub="scratch">🎲 Lucky</button>
+        <button class="subtab-btn ${this.arcadeSub === 'village' ? 'active' : ''}" data-sub="village">${this.state.revengeReady ? '⚡ Revenge!' : '💥 Raid & Village'}</button>
       </div>
       <div id="arcade-body" style="display:flex;flex-direction:column;gap:10px;"></div>
     `;
 
     panel.querySelectorAll<HTMLButtonElement>('[data-sub]').forEach((b) => {
       b.addEventListener('click', () => {
+        this.cleanupSubCanvas();
         this.arcadeSub = b.dataset.sub as ArcadeSubTab;
         this.sfx.playTap();
         this.renderArcadeTab();
@@ -980,11 +1202,538 @@ class FairCoinSlotsApp {
     });
 
     const body = panel.querySelector<HTMLElement>('#arcade-body')!;
-    if (this.arcadeSub === 'dozer') this.renderDozer(body);
+    if (this.arcadeSub === 'crash') this.renderCrashAndHiLo(body);
+    else if (this.arcadeSub === 'casino') this.renderRouletteAndKeno(body);
+    else if (this.arcadeSub === 'fox') this.renderFoxGashaponAndPuzzle(body);
+    else if (this.arcadeSub === 'dozer') this.renderDozer(body);
     else if (this.arcadeSub === 'plinko') this.renderPlinko(body);
     else if (this.arcadeSub === 'highroller') this.renderHighRoller(body);
     else if (this.arcadeSub === 'scratch') this.renderScratchAndDice(body);
     else this.renderVillageAndRaid(body);
+  }
+
+  private renderCrashAndHiLo(body: HTMLElement): void {
+    const crashBets = [50_000_000, 250_000_000, 1_000_000_000, 5_000_000_000];
+    const hiloBets = [25_000_000, 100_000_000, 500_000_000];
+    const petBoost = getActivePetBoost(this.state);
+    const rhinoBoost = petBoost.pet?.id === 'rhino' ? 1.15 : 1;
+
+    body.innerHTML = `
+      <div class="card" style="align-items:center;text-align:center;">
+        <h2>🚀 Crash Rocket</h2>
+        <p>Launch the rocket & tap <b>CASH OUT</b> before it explodes!${rhinoBoost > 1 ? ' <b style="color:#4cc9f0;">(+15% Rhino Boost!)</b>' : ''}</p>
+        <div class="crash-history">
+          ${this.state.crashHistory
+            .slice(0, 6)
+            .map((m) => `<span class="crash-chip ${m < 1.5 ? 'low' : m >= 3 ? 'high' : 'mid'}">${m.toFixed(2)}x</span>`)
+            .join('')}
+        </div>
+        <canvas id="crash-canvas" width="320" height="190" style="border-radius:14px;border:2px solid #ffd166;max-width:100%;"></canvas>
+        <div class="subtab-strip" style="justify-content:center;max-width:100%;">
+          ${crashBets
+            .map(
+              (amt) =>
+                `<button class="subtab-btn ${this.crashBet === amt ? 'active' : ''}" data-cbet="${amt}">${formatCoins(amt)}</button>`
+            )
+            .join('')}
+        </div>
+        <div style="display:flex;gap:8px;width:100%;">
+          <button class="action-btn" style="flex:1;" id="btn-crash-launch">🚀 LAUNCH (${formatCoins(this.crashBet)})</button>
+          <button class="action-btn green" style="flex:1;" id="btn-crash-cashout" disabled>💰 CASH OUT</button>
+        </div>
+      </div>
+
+      <div class="card" style="text-align:center;">
+        <h2>🃏 Hi-Lo Card Streak</h2>
+        <p>Guess if the next card is <b>Higher</b> or <b>Lower</b>! Streak pays up to <b>12x</b>.</p>
+        <div class="hilo-card ${this.hiloCard.isRed ? 'red' : ''}">
+          <span style="font-size:32px;line-height:1;">${formatHiLoRank(this.hiloCard.rank)}</span>
+          <span style="font-size:24px;line-height:1;">${this.hiloCard.suit}</span>
+        </div>
+        ${
+          !this.hiloActive
+            ? `
+          <div class="subtab-strip" style="justify-content:center;max-width:100%;">
+            ${hiloBets
+              .map(
+                (amt) =>
+                  `<button class="subtab-btn ${this.hiloBet === amt ? 'active' : ''}" data-hlbet="${amt}">${formatCoins(amt)}</button>`
+              )
+              .join('')}
+          </div>
+          <button class="action-btn secondary" id="btn-hilo-start">Deal Streak (${formatCoins(this.hiloBet)})</button>
+        `
+            : `
+          <div style="font-size:13px;font-weight:900;color:#ffd166;">
+            Streak: ${this.hiloStreak} • Payout: 🪙 ${formatCoins(Math.round(this.hiloBet * this.hiloMult))} (${this.hiloMult.toFixed(2)}x)
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="action-btn green" style="flex:1;" id="btn-hilo-high">⬆️ HIGHER</button>
+            <button class="action-btn pink" style="flex:1;" id="btn-hilo-low">⬇️ LOWER</button>
+          </div>
+          <button class="action-btn" id="btn-hilo-cash" ${this.hiloStreak <= 0 ? 'disabled' : ''}>
+            ${this.hiloStreak > 0 ? `💰 Cash Out 🪙 ${formatCoins(Math.round(this.hiloBet * this.hiloMult))}` : 'Win 1 guess to cash out'}
+          </button>
+        `
+        }
+      </div>
+    `;
+
+    const crashCanvas = body.querySelector<HTMLCanvasElement>('#crash-canvas')!;
+    this.crashCtrl = new CrashRocketCanvas(crashCanvas);
+
+    const launchBtn = body.querySelector<HTMLButtonElement>('#btn-crash-launch')!;
+    const cashBtn = body.querySelector<HTMLButtonElement>('#btn-crash-cashout')!;
+
+    body.querySelectorAll<HTMLButtonElement>('[data-cbet]').forEach((b) => {
+      b.addEventListener('click', () => {
+        if (this.crashCtrl?.isFlying()) return;
+        this.crashBet = Number(b.dataset.cbet);
+        this.sfx.playTap();
+        this.renderArcadeTab();
+      });
+    });
+
+    launchBtn.addEventListener('click', () => {
+      if (!this.crashCtrl || this.crashCtrl.isFlying()) return;
+      if (this.state.coins < this.crashBet) {
+        this.showToast(`Need ${formatCoins(this.crashBet)} coins! Lower your bet or play Lucky Games.`);
+        return;
+      }
+      this.state.coins -= this.crashBet;
+      incrementQuest(this.state, 'arcade', 1);
+      saveGameState(this.state);
+      this.renderHud();
+      this.sfx.playSpinStart();
+
+      launchBtn.disabled = true;
+      cashBtn.disabled = false;
+      cashBtn.textContent = `💰 CASH OUT (1.00x)`;
+
+      this.crashCtrl.launch(
+        (m) => {
+          if (cashBtn.isConnected && !cashBtn.disabled) {
+            cashBtn.textContent = `💰 OUT (${m.toFixed(2)}x • ${formatCoins(Math.round(this.crashBet * m * rhinoBoost))})`;
+          }
+        },
+        (crashedAt) => {
+          this.state.crashHistory = [crashedAt, ...this.state.crashHistory].slice(0, 8);
+          saveGameState(this.state);
+          this.sfx.playReelStop(0);
+          if (launchBtn.isConnected) launchBtn.disabled = false;
+          if (cashBtn.isConnected) {
+            cashBtn.disabled = true;
+            cashBtn.textContent = '💥 CRASHED!';
+          }
+          this.showToast(`💥 Rocket crashed at ${crashedAt.toFixed(2)}x! Lost ${formatCoins(this.crashBet)}.`);
+          window.setTimeout(() => {
+            if (this.activeTab === 'arcade' && this.arcadeSub === 'crash' && !this.crashCtrl?.isFlying()) {
+              this.renderArcadeTab();
+            }
+          }, 950);
+        }
+      );
+    });
+
+    cashBtn.addEventListener('click', () => {
+      if (!this.crashCtrl || !this.crashCtrl.isFlying()) return;
+      const cashed = this.crashCtrl.cashOut();
+      if (cashed <= 0) return;
+      const payout = Math.round(this.crashBet * cashed * rhinoBoost);
+      this.state.coins += payout;
+      this.state.totalWon += payout;
+      this.state.crashHistory = [cashed, ...this.state.crashHistory].slice(0, 8);
+      saveGameState(this.state);
+      this.sfx.playBigWin();
+      this.spawnCoinShower(18);
+      this.spawnCoinFountain(14);
+      launchBtn.disabled = false;
+      cashBtn.disabled = true;
+      cashBtn.textContent = `✅ +${formatCoins(payout)}`;
+      this.showToast(`🚀 Cashed out at ${cashed.toFixed(2)}x! +${formatCoins(payout)} coins!`);
+      this.renderHud();
+    });
+
+    // Hi-Lo Events
+    body.querySelectorAll<HTMLButtonElement>('[data-hlbet]').forEach((b) => {
+      b.addEventListener('click', () => {
+        if (this.hiloActive) return;
+        this.hiloBet = Number(b.dataset.hlbet);
+        this.sfx.playTap();
+        this.renderArcadeTab();
+      });
+    });
+
+    body.querySelector('#btn-hilo-start')?.addEventListener('click', () => {
+      if (this.state.coins < this.hiloBet) {
+        this.showToast(`Need ${formatCoins(this.hiloBet)} coins for Hi-Lo!`);
+        return;
+      }
+      this.state.coins -= this.hiloBet;
+      this.hiloActive = true;
+      this.hiloStreak = 0;
+      this.hiloMult = 1.0;
+      this.hiloCard = drawRandomCard();
+      incrementQuest(this.state, 'arcade', 1);
+      saveGameState(this.state);
+      this.sfx.playTap();
+      this.renderHud();
+      this.renderArcadeTab();
+    });
+
+    const playHiLoGuess = (guess: 'high' | 'low') => {
+      if (!this.hiloActive) return;
+      const outcome = drawHiLoOutcomeCard(this.hiloCard.rank, guess, this.hiloStreak);
+      this.hiloCard = outcome.next;
+      if (outcome.won) {
+        this.hiloStreak += 1;
+        this.hiloMult = Number((1 + this.hiloStreak * 0.65 + (this.hiloStreak >= 3 ? 0.5 : 0)).toFixed(2));
+        this.sfx.playCoin();
+        if (this.hiloStreak >= 6) {
+          const payout = Math.round(this.hiloBet * this.hiloMult);
+          this.state.coins += payout;
+          this.state.totalWon += payout;
+          this.hiloActive = false;
+          saveGameState(this.state);
+          this.sfx.playBigWin();
+          this.spawnCoinShower(18);
+          this.showToast(`🃏 Max 6 Streak! +${formatCoins(payout)} coins!`);
+          this.renderHud();
+        }
+      } else {
+        this.hiloActive = false;
+        saveGameState(this.state);
+        this.sfx.playReelStop(0);
+        this.showToast(`💥 Card was ${formatHiLoRank(outcome.next.rank)}${outcome.next.suit} — streak busted!`);
+      }
+      this.renderArcadeTab();
+    };
+
+    body.querySelector('#btn-hilo-high')?.addEventListener('click', () => playHiLoGuess('high'));
+    body.querySelector('#btn-hilo-low')?.addEventListener('click', () => playHiLoGuess('low'));
+    body.querySelector('#btn-hilo-cash')?.addEventListener('click', () => {
+      if (!this.hiloActive || this.hiloStreak <= 0) return;
+      const payout = Math.round(this.hiloBet * this.hiloMult);
+      this.state.coins += payout;
+      this.state.totalWon += payout;
+      this.hiloActive = false;
+      saveGameState(this.state);
+      this.sfx.playBigWin();
+      this.spawnCoinShower(14);
+      this.showToast(`💰 Hi-Lo cashed out: +${formatCoins(payout)} coins!`);
+      this.renderHud();
+      this.renderArcadeTab();
+    });
+  }
+
+  private renderRouletteAndKeno(body: HTMLElement): void {
+    const rBets = [25_000_000, 100_000_000, 500_000_000];
+    const kBets = [10_000_000, 25_000_000, 100_000_000];
+    const rChoices: { id: RouletteBetType; label: string }[] = [
+      { id: 'red', label: '🔴 Red (2x)' },
+      { id: 'black', label: '⚫ Black (2x)' },
+      { id: 'zero', label: '🟢 Zero (36x)' },
+      { id: 'even', label: 'Even (2x)' },
+      { id: 'odd', label: 'Odd (2x)' },
+      { id: 'dozen1', label: '1–12 (3x)' },
+      { id: 'dozen2', label: '13–24 (3x)' },
+      { id: 'dozen3', label: '25–36 (3x)' },
+    ];
+    const petBoost = getActivePetBoost(this.state);
+    const tigerMult = petBoost.pet?.id === 'tiger' ? 1.25 : 1;
+    const rhinoMult = petBoost.pet?.id === 'rhino' ? 1.15 : 1;
+
+    const lastBadge =
+      this.rouletteLastNum !== null
+        ? `<div style="font-size:13px;font-weight:900;color:${
+            this.rouletteLastNum === 0 ? '#06d6a0' : ROULETTE_RED_NUMS.has(this.rouletteLastNum) ? '#ff5d8f' : '#e2e8f0'
+          };">Last Landed: ${this.rouletteLastNum} (${
+            this.rouletteLastNum === 0 ? 'GREEN 0' : ROULETTE_RED_NUMS.has(this.rouletteLastNum) ? 'RED' : 'BLACK'
+          })</div>`
+        : '';
+
+    const kenoHits = this.kenoPicks.filter((n) => this.kenoDrawn.includes(n));
+
+    body.innerHTML = `
+      <div class="card" style="align-items:center;text-align:center;">
+        <h2>🎡 European Roulette</h2>
+        <p>Pick your bet & spin! Green <b>0</b> pays <b>36x</b>.${tigerMult > 1 ? ' <b style="color:#f72585;">(+25% Tiger Boost!)</b>' : ''}</p>
+        <canvas id="roulette-canvas" width="216" height="216"></canvas>
+        ${lastBadge}
+        <div class="subtab-strip" style="justify-content:center;max-width:100%;">
+          ${rBets
+            .map(
+              (amt) =>
+                `<button class="subtab-btn ${this.rouletteBet === amt ? 'active' : ''}" data-rbet="${amt}">${formatCoins(amt)}</button>`
+            )
+            .join('')}
+        </div>
+        <div class="roulette-bet-grid" style="width:100%;">
+          ${rChoices
+            .map(
+              (ch) =>
+                `<button class="subtab-btn ${this.rouletteBetType === ch.id ? 'active' : ''}" data-rtype="${ch.id}" style="font-size:11px;padding:6px 4px;">${ch.label}</button>`
+            )
+            .join('')}
+        </div>
+        <button class="action-btn" id="btn-roulette-spin">🎡 Spin Roulette (${formatCoins(this.rouletteBet)})</button>
+      </div>
+
+      <div class="card" style="text-align:center;">
+        <h2>🔢 Keno Lucky Bingo</h2>
+        <p>Pick <b>5 numbers</b> (1–24), draw 8 balls! 3 hits = <b>2.5x</b> • 4 = <b>8x</b> • 5 = <b>35x</b>!</p>
+        <div class="subtab-strip" style="justify-content:center;max-width:100%;">
+          ${kBets
+            .map(
+              (amt) =>
+                `<button class="subtab-btn ${this.kenoBet === amt ? 'active' : ''}" data-kbet="${amt}">${formatCoins(amt)}</button>`
+            )
+            .join('')}
+        </div>
+        <div class="keno-grid">
+          ${Array.from({ length: 24 }, (_, i) => i + 1)
+            .map((num) => {
+              const picked = this.kenoPicks.includes(num);
+              const drawn = this.kenoDrawn.includes(num);
+              const hit = picked && drawn;
+              const cls = hit ? 'hit' : drawn ? 'drawn' : picked ? 'picked' : '';
+              return `<button class="keno-num ${cls}" data-knum="${num}">${num}</button>`;
+            })
+            .join('')}
+        </div>
+        ${
+          this.kenoDrawn.length > 0
+            ? `<div style="font-size:12px;font-weight:800;color:#ffd166;">Drawn: ${this.kenoDrawn.join(' • ')} (${kenoHits.length} hit${kenoHits.length === 1 ? '' : 's'} = ${KENO_PAYOUTS[kenoHits.length] ?? 0}x)</div>`
+            : `<div style="font-size:12px;color:#c7b8e8;">Picked ${this.kenoPicks.length}/5 numbers</div>`
+        }
+        <div style="display:flex;gap:8px;">
+          <button class="action-btn secondary" style="flex:1;" id="btn-keno-quick">🎲 Quick Pick</button>
+          <button class="action-btn green" style="flex:1.4;" id="btn-keno-draw">Draw 8 Balls (${formatCoins(this.kenoBet)})</button>
+        </div>
+      </div>
+    `;
+
+    const rCanvas = body.querySelector<HTMLCanvasElement>('#roulette-canvas')!;
+    this.rouletteCtrl = new RouletteWheelCanvas(rCanvas);
+
+    body.querySelectorAll<HTMLButtonElement>('[data-rbet]').forEach((b) => {
+      b.addEventListener('click', () => {
+        if (this.rouletteCtrl?.isSpinning()) return;
+        this.rouletteBet = Number(b.dataset.rbet);
+        this.sfx.playTap();
+        this.renderArcadeTab();
+      });
+    });
+    body.querySelectorAll<HTMLButtonElement>('[data-rtype]').forEach((b) => {
+      b.addEventListener('click', () => {
+        if (this.rouletteCtrl?.isSpinning()) return;
+        this.rouletteBetType = b.dataset.rtype as RouletteBetType;
+        this.sfx.playTap();
+        this.renderArcadeTab();
+      });
+    });
+
+    const spinBtn = body.querySelector<HTMLButtonElement>('#btn-roulette-spin')!;
+    spinBtn.addEventListener('click', () => {
+      if (!this.rouletteCtrl || this.rouletteCtrl.isSpinning()) return;
+      if (this.state.coins < this.rouletteBet) {
+        this.showToast(`Need ${formatCoins(this.rouletteBet)} coins for Roulette!`);
+        return;
+      }
+      this.state.coins -= this.rouletteBet;
+      incrementQuest(this.state, 'arcade', 1);
+      saveGameState(this.state);
+      this.renderHud();
+      spinBtn.disabled = true;
+
+      const landedNum = Math.floor(Math.random() * 37);
+      this.rouletteCtrl.spinTo(
+        landedNum,
+        () => {
+          this.rouletteLastNum = landedNum;
+          const basePayout = evaluateRouletteBet(landedNum, this.rouletteBetType, this.rouletteBet);
+          const payout = Math.round(basePayout * tigerMult);
+          if (payout > 0) {
+            this.state.coins += payout;
+            this.state.totalWon += payout;
+            this.sfx.playBigWin();
+            this.spawnCoinShower(18);
+            this.showToast(`🎡 Landed ${landedNum}! Won +${formatCoins(payout)} coins!`);
+          } else {
+            this.sfx.playReelStop(0);
+            this.showToast(`🎡 Landed ${landedNum} — House wins!`);
+          }
+          saveGameState(this.state);
+          this.renderHud();
+          if (this.activeTab === 'arcade' && this.arcadeSub === 'casino') {
+            this.renderArcadeTab();
+          }
+        },
+        () => this.sfx.playWheelTick()
+      );
+    });
+
+    // Keno Handlers
+    body.querySelectorAll<HTMLButtonElement>('[data-kbet]').forEach((b) => {
+      b.addEventListener('click', () => {
+        this.kenoBet = Number(b.dataset.kbet);
+        this.sfx.playTap();
+        this.renderArcadeTab();
+      });
+    });
+
+    body.querySelectorAll<HTMLButtonElement>('[data-knum]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const num = Number(b.dataset.knum);
+        this.kenoDrawn = [];
+        if (this.kenoPicks.includes(num)) {
+          this.kenoPicks = this.kenoPicks.filter((x) => x !== num);
+        } else if (this.kenoPicks.length < 5) {
+          this.kenoPicks = [...this.kenoPicks, num].sort((a, b) => a - b);
+        } else {
+          this.kenoPicks = [...this.kenoPicks.slice(1), num].sort((a, b) => a - b);
+        }
+        this.sfx.playTap();
+        this.renderArcadeTab();
+      });
+    });
+
+    body.querySelector('#btn-keno-quick')?.addEventListener('click', () => {
+      this.kenoDrawn = [];
+      this.kenoPicks = Array.from({ length: 24 }, (_, i) => i + 1)
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 5)
+        .sort((a, b) => a - b);
+      this.sfx.playTap();
+      this.renderArcadeTab();
+    });
+
+    body.querySelector('#btn-keno-draw')?.addEventListener('click', () => {
+      if (this.kenoPicks.length < 5) {
+        this.showToast('Pick 5 numbers first (or tap Quick Pick)!');
+        return;
+      }
+      if (this.state.coins < this.kenoBet) {
+        this.showToast(`Need ${formatCoins(this.kenoBet)} coins for Keno!`);
+        return;
+      }
+      this.state.coins -= this.kenoBet;
+      incrementQuest(this.state, 'arcade', 1);
+      const res = drawKenoRound(this.kenoPicks, this.kenoBet, rhinoMult > 1);
+      this.kenoDrawn = res.drawn;
+      if (res.payout > 0) {
+        this.state.coins += res.payout;
+        this.state.totalWon += res.payout;
+        this.sfx.playBigWin();
+        this.spawnCoinShower(14);
+        this.showToast(`🔢 Keno ${res.hits.length}/5 Hits! +${formatCoins(res.payout)} coins!`);
+      } else {
+        this.sfx.playReelStop(0);
+        this.showToast(`🔢 Only ${res.hits.length} hit${res.hits.length === 1 ? '' : 's'} — try again!`);
+      }
+      saveGameState(this.state);
+      this.renderHud();
+      this.renderArcadeTab();
+    });
+  }
+
+  private renderFoxGashaponAndPuzzle(body: HTMLElement): void {
+    const ch = getCurrentPuzzleChapter(this.state);
+    const piecesOwned = this.state.puzzlePieces.length;
+    const hasToken = this.state.gashaponTokens > 0;
+
+    body.innerHTML = `
+      <div class="card" style="align-items:center;text-align:center;">
+        <h2>🫧 Crazy Fox Gashapon</h2>
+        <p>Turn the capsule crank to pop rare <b>🧩 Puzzle Pieces</b>, <b>🍖 Pet Treats</b>, <b>🃏 Joker Cards</b> & Jackpots!</p>
+        <div style="font-size:12px;font-weight:800;color:#ffd166;">
+          🫧 Tokens: <b>${this.state.gashaponTokens}</b> • 🍖 Treats: <b>${this.state.petTreats}</b> • 🃏 Jokers: <b>${this.state.jokerCards}</b>
+        </div>
+        <canvas id="gashapon-canvas" width="220" height="210"></canvas>
+        <button class="action-btn ${hasToken ? 'green' : ''}" id="btn-gashapon-crank">
+          ${hasToken ? `🫧 Crank Capsule (1 Token • ${this.state.gashaponTokens} left)` : `🫧 Crank Capsule (🪙 ${formatCoins(GASHAPON_COIN_COST)})`}
+        </button>
+      </div>
+
+      <div class="card" style="text-align:center;">
+        <h2>🧩 Puzzle: ${ch.title} (${piecesOwned}/9)</h2>
+        <p>Collect all 9 pieces from Slots & Gashapon to win <b>🪙 ${formatCoins(ch.rewardCoins)} + ${ch.rewardChests}🎁 + 1🃏 Joker</b>!</p>
+        <div class="puzzle-grid">
+          ${ch.tiles
+            .map((emoji, idx) => {
+              const owned = this.state.puzzlePieces.includes(idx);
+              return `
+                <div class="puzzle-cell ${owned ? 'owned' : 'missing'}">
+                  <span>${owned ? emoji : '❓'}</span>
+                  <small style="font-size:9px;color:${owned ? '#ffd166' : '#c7b8e8'};">#${idx + 1}</small>
+                </div>
+              `;
+            })
+            .join('')}
+        </div>
+      </div>
+    `;
+
+    const gCanvas = body.querySelector<HTMLCanvasElement>('#gashapon-canvas')!;
+    this.gashaponCtrl = new GashaponCanvas(gCanvas);
+
+    const crankBtn = body.querySelector<HTMLButtonElement>('#btn-gashapon-crank')!;
+    crankBtn.addEventListener('click', () => {
+      if (!this.gashaponCtrl || this.gashaponCtrl.isCranking()) return;
+      if (this.state.gashaponTokens > 0) {
+        this.state.gashaponTokens -= 1;
+      } else if (this.state.coins >= GASHAPON_COIN_COST) {
+        this.state.coins -= GASHAPON_COIN_COST;
+      } else {
+        this.showToast(`Need 1 Token or ${formatCoins(GASHAPON_COIN_COST)} coins!`);
+        return;
+      }
+      incrementQuest(this.state, 'arcade', 1);
+      saveGameState(this.state);
+      this.renderHud();
+      this.sfx.playSpinStart();
+      crankBtn.disabled = true;
+
+      const colors = ['#ff5d8f', '#4cc9f0', '#ffd166', '#06d6a0', '#c084fc'];
+      const capColor = colors[Math.floor(Math.random() * colors.length)];
+
+      this.gashaponCtrl.crank(capColor, () => {
+        const roll = Math.random();
+        let prizeMsg = '';
+        if (roll < 0.36) {
+          const puz = grantRandomPuzzlePiece(this.state);
+          if (puz.completedChapter) {
+            prizeMsg = `🎉 PUZZLE COMPLETE! +${formatCoins(puz.completedChapter.rewardCoins)} +🃏 Joker!`;
+          } else {
+            prizeMsg = `🫧 Capsule opened: 🧩 Puzzle Piece #${(puz.pieceIdx ?? 0) + 1}!`;
+          }
+        } else if (roll < 0.62) {
+          this.state.petTreats += 3;
+          prizeMsg = '🫧 Capsule opened: +3 🍖 Pet Treats!';
+        } else if (roll < 0.85) {
+          const coins = 85_000_000;
+          this.state.coins += coins;
+          this.state.totalWon += coins;
+          prizeMsg = `🫧 Capsule opened: +🪙 ${formatCoins(coins)} Coins!`;
+        } else if (roll < 0.95) {
+          this.state.chests += 2;
+          this.state.shields = Math.min(3, this.state.shields + 1);
+          prizeMsg = '🫧 Capsule opened: +2 🎁 Chests & +1 🛡️ Shield!';
+        } else {
+          this.state.jokerCards += 1;
+          prizeMsg = '🫧 ULTRA RARE! +1 🃏 Joker Wild Card!';
+        }
+        saveGameState(this.state);
+        this.sfx.playBigWin();
+        this.spawnConfettiBurst(24);
+        this.spawnCoinShower(14);
+        this.showToast(prizeMsg);
+        this.renderHud();
+        if (this.activeTab === 'arcade' && this.arcadeSub === 'fox') {
+          this.renderArcadeTab();
+        }
+      });
+    });
   }
 
   private renderDozer(body: HTMLElement): void {
@@ -1409,8 +2158,28 @@ class FairCoinSlotsApp {
     const kingdomLvl = getKingdomLevel(this.state);
     const mult = getTotalMultiplier(this.state);
     const raidFree = this.state.coins < RAID_COST;
+    const cannonFree = this.state.coins < CANNON_COST;
+    const flash = getActiveFlashEvent();
+    const petBoost = getActivePetBoost(this.state);
+    const raidMult = (flash.event.id === 'raid_madness' ? 2 : 1) * (petBoost.pet?.id === 'foxy' ? 1.35 : 1);
 
     body.innerHTML = `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+          <h2>💥 Attack Cannon vs ${this.state.rivalTargetName}</h2>
+          ${this.state.revengeReady ? `<span class="vip-price-tag" style="background:#ff5d8f;color:#fff;">⚡ 2x REVENGE!</span>` : ''}
+        </div>
+        <p>Fire your cannon at a rival building! Smash unshielded buildings for huge loot${raidMult > 1 ? ` (<b style="color:#06d6a0;">${raidMult.toFixed(2)}x Boost active!</b>)` : ''}.</p>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+          <button class="action-btn ${this.state.revengeReady ? 'pink' : ''}" data-cannon="Tower 🏰">🏰 Tower</button>
+          <button class="action-btn ${this.state.revengeReady ? 'pink' : 'secondary'}" data-cannon="Vault 🏦">🏦 Vault</button>
+          <button class="action-btn ${this.state.revengeReady ? 'pink' : 'green'}" data-cannon="Statues 🗿">🗿 Statue</button>
+        </div>
+        <div style="font-size:11px;color:#c7b8e8;text-align:center;">
+          ${this.state.revengeReady ? '⚡ Payback mode! Next shot guarantees +2x SMASH!' : cannonFree ? 'Free attack when low on coins!' : `Shot cost: 🪙 ${formatCoins(CANNON_COST)}`}
+        </div>
+      </div>
+
       <div class="card">
         <h2>🏴‍☠️ Treasure Raid</h2>
         <p>Dig 3 spots in <b>King Croc's 🐊</b> village! Shields: <b>${this.state.shields} 🛡️</b>.</p>
@@ -1418,7 +2187,7 @@ class FairCoinSlotsApp {
           ${this.raidValues
             .map((val, i) =>
               this.raidRevealed[i]
-                ? `<div class="scratch-tile revealed"><span>💰</span><span style="font-size:11px;">+${formatCoins(val)}</span></div>`
+                ? `<div class="scratch-tile revealed"><span>💰</span><span style="font-size:11px;">+${formatCoins(Math.round(val * raidMult))}</span></div>`
                 : `<button class="scratch-tile" data-raid="${i}" ${this.raidDoneBoard ? 'disabled' : ''}>❌ DIG</button>`
             )
             .join('')}
@@ -1450,12 +2219,45 @@ class FairCoinSlotsApp {
       </div>
     `;
 
+    body.querySelectorAll<HTMLButtonElement>('[data-cannon]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const target = b.dataset.cannon!;
+        if (this.state.coins >= CANNON_COST) {
+          this.state.coins -= CANNON_COST;
+        }
+        incrementQuest(this.state, 'arcade', 1);
+        const isRevenge = this.state.revengeReady;
+        this.state.revengeReady = false;
+        const shielded = !isRevenge && Math.random() < 0.35;
+        const baseLoot = shielded ? 22_000_000 : isRevenge ? 130_000_000 : 75_000_000;
+        const loot = Math.round(baseLoot * raidMult);
+
+        this.state.coins += loot;
+        this.state.totalWon += loot;
+        this.state.shields = Math.min(3, this.state.shields + (shielded ? 0 : 1));
+        this.state.rivalTargetName = Math.random() < 0.5 ? 'Crazy Foxy 🦊' : 'King Croc 🐊';
+        saveGameState(this.state);
+
+        if (shielded) {
+          this.sfx.playReelStop(1);
+          this.showToast(`🛡️ Blocked by shield at ${target}! Salvaged +${formatCoins(loot)} coins.`);
+        } else {
+          this.sfx.playBigWin();
+          this.spawnCoinShower(16);
+          this.spawnConfettiBurst(22);
+          this.showToast(`💥 ${isRevenge ? '2x REVENGE ' : ''}SMASHED ${target}! Stole +${formatCoins(loot)} coins!`);
+        }
+        this.renderHud();
+        this.renderArcadeTab();
+      });
+    });
+
     body.querySelectorAll<HTMLButtonElement>('[data-raid]').forEach((b) => {
       b.addEventListener('click', () => {
         const idx = Number(b.dataset.raid);
         if (this.raidRevealed[idx] || this.raidDoneBoard) return;
         this.raidRevealed[idx] = true;
-        const loot = this.raidValues[idx];
+        const loot = Math.round(this.raidValues[idx] * raidMult);
         this.state.coins += loot;
         this.state.totalWon += loot;
         this.state.shields = Math.min(3, this.state.shields + (Math.random() < 0.35 ? 1 : 0));
@@ -1505,9 +2307,103 @@ class FairCoinSlotsApp {
     });
   }
 
-  // ===================== 3. CHARACTER & STYLE SHOP TAB =====================
+  // ===================== 3. CHARACTER, STYLE SHOP & LUCKY PETS TAB =====================
   private renderCharacterTab(): void {
     const panel = this.root.querySelector<HTMLElement>('#tab-character')!;
+    const petBoost = getActivePetBoost(this.state);
+
+    const subNavHtml = `
+      <div class="subtab-strip">
+        <button class="subtab-btn ${this.characterSub === 'studio' ? 'active' : ''}" data-csub="studio">👕 Mascot & Shop</button>
+        <button class="subtab-btn ${this.characterSub === 'pets' ? 'active' : ''}" data-csub="pets">🦊 Lucky Pets (${this.state.petTreats} 🍖)</button>
+      </div>
+    `;
+
+    if (this.characterSub === 'pets') {
+      panel.innerHTML = `
+        ${subNavHtml}
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <h2>🦊 Active Companion Pet</h2>
+            <span class="vip-price-tag" id="pet-boost-timer">${petBoost.pet ? this.formatMmSs(petBoost.remainingMs) : 'Asleep'}</span>
+          </div>
+          <p>Feed your chosen pet <b>1 🍖 Treat</b> to wake it for <b>15 minutes</b> of live bonuses! Treats drop from Slots, Gashapon & Balloons.</p>
+          <div style="display:flex;gap:8px;">
+            <button class="action-btn green" style="flex:1;" id="btn-feed-pet" ${this.state.petTreats <= 0 ? 'disabled' : ''}>
+              🍖 Feed Pet (${this.state.petTreats} left)
+            </button>
+            <button class="action-btn secondary" style="flex:1;" id="btn-buy-treats">
+              Buy 3 🍖 (🪙 ${formatCoins(PET_TREATS_SHOP_COST)})
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Select Your Companion</h3>
+          ${PET_CATALOG.map((p) => {
+            const selected = this.state.activePetId === p.id;
+            return `
+              <div class="building-row" style="${selected ? `border-color:${p.accent};background:rgba(255,209,102,0.12);` : ''}">
+                <div class="building-icon" style="font-size:30px;">${p.emoji}</div>
+                <div class="building-info">
+                  <strong>${p.name} — <span style="color:${p.accent};">${p.perkTitle}</span></strong>
+                  <small>${p.description}</small>
+                </div>
+                <button class="action-btn ${selected ? 'green' : 'secondary'}" data-pickpet="${p.id}">
+                  ${selected ? 'Active ✓' : 'Select'}
+                </button>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+
+      panel.querySelectorAll<HTMLButtonElement>('[data-csub]').forEach((b) => {
+        b.addEventListener('click', () => {
+          this.characterSub = b.dataset.csub as CharacterSubTab;
+          this.sfx.playTap();
+          this.renderCharacterTab();
+        });
+      });
+
+      panel.querySelectorAll<HTMLButtonElement>('[data-pickpet]').forEach((b) => {
+        b.addEventListener('click', () => {
+          this.state.activePetId = b.dataset.pickpet as PetId;
+          saveGameState(this.state);
+          this.sfx.playTap();
+          this.renderCharacterTab();
+        });
+      });
+
+      panel.querySelector('#btn-feed-pet')?.addEventListener('click', () => {
+        if (this.state.petTreats <= 0) return;
+        this.state.petTreats -= 1;
+        const base = this.state.petBoostUntil && this.state.petBoostUntil > Date.now() ? this.state.petBoostUntil : Date.now();
+        this.state.petBoostUntil = Math.min(Date.now() + 60 * 60 * 1000, base + PET_BOOST_DURATION_MS);
+        saveGameState(this.state);
+        this.sfx.playUpgrade();
+        this.spawnConfettiBurst(16);
+        const pet = PET_CATALOG.find((x) => x.id === this.state.activePetId) ?? PET_CATALOG[0];
+        this.showToast(`${pet.emoji} ${pet.name} fed! Boost active for 15+ minutes!`);
+        this.renderCharacterTab();
+      });
+
+      panel.querySelector('#btn-buy-treats')?.addEventListener('click', () => {
+        if (this.state.coins < PET_TREATS_SHOP_COST) {
+          this.showToast(`Need ${formatCoins(PET_TREATS_SHOP_COST)} coins for 3 Treats!`);
+          return;
+        }
+        this.state.coins -= PET_TREATS_SHOP_COST;
+        this.state.petTreats += 3;
+        saveGameState(this.state);
+        this.sfx.playCoin();
+        this.showToast('🍖 Bought +3 Pet Treats!');
+        this.renderHud();
+        this.renderCharacterTab();
+      });
+      return;
+    }
+
     const c = this.state.character;
     const catLabels: { id: ShopCategory; label: string }[] = [
       { id: 'outfit', label: '👕 Outfits' },
@@ -1519,6 +2415,7 @@ class FairCoinSlotsApp {
     const items = SHOP_ITEMS.filter((i) => i.category === this.shopCategory);
 
     panel.innerHTML = `
+      ${subNavHtml}
       <div class="char-stage">
         <canvas id="preview-char-canvas" width="180" height="180" style="width:140px;height:140px;"></canvas>
         <div style="font-size:14px;font-weight:900;color:#ffd166;">Your Cartoon Mascot</div>
@@ -1574,6 +2471,15 @@ class FairCoinSlotsApp {
         </div>
       </div>
     `;
+
+    panel.querySelectorAll<HTMLButtonElement>('[data-csub]').forEach((b) => {
+      b.addEventListener('click', () => {
+        this.cleanupSubCanvas();
+        this.characterSub = b.dataset.csub as CharacterSubTab;
+        this.sfx.playTap();
+        this.renderCharacterTab();
+      });
+    });
 
     const previewCanvas = panel.querySelector<HTMLCanvasElement>('#preview-char-canvas');
     if (previewCanvas) {
@@ -1693,6 +2599,10 @@ class FairCoinSlotsApp {
     const halfLeft = Math.max(0, HALF_HOUR_MS - (now - this.state.lastHalfHourBonusAt));
     const dailyLeft = Math.max(0, DAY_MS - (now - this.state.lastDailyAt));
     const outOfSpins = this.state.wheelSpins <= 0;
+    const activeSim = this.state.simOfferProcessing;
+    const vikingDef = VIKING_QUEST_STEPS[this.state.vikingStep] ?? VIKING_QUEST_STEPS[0];
+    const vikingKeyProcessing = activeSim?.offerId === 'viking_key';
+    const streakSimProcessing = activeSim?.offerId === 'streak_save';
 
     const formatWait = (ms: number) => {
       const s = Math.ceil(ms / 1000);
@@ -1700,6 +2610,22 @@ class FairCoinSlotsApp {
       const rem = s % 60;
       return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m ${rem}s`;
     };
+
+    const vikingBtnText =
+      vikingDef.kind === 'paywall' && vikingKeyProcessing && activeSim
+        ? `⏳ Forging Valhalla Key (<span id="sim-offer-inline-timer">${this.formatMmSs(activeSim.until - now)}</span>)...`
+        : vikingDef.kind === 'free'
+          ? '🎁 Claim Provisions (Free)'
+          : vikingDef.kind === 'paywall'
+            ? `🗝️ Unlock ${vikingDef.fakePriceLabel || '€4.99'} Key (€0.00 Real Money)`
+            : vikingDef.kind === 'grand'
+              ? '🏆 Claim Valhalla Grand Hoard!'
+              : `⚔️ Wager 🪙 ${formatCoins(vikingDef.costCoins)}`;
+
+    const streakBtnText =
+      streakSimProcessing && activeSim
+        ? `⏳ Verifying Streak Boost (<span id="sim-offer-inline-timer">${this.formatMmSs(activeSim.until - now)}</span>)...`
+        : '⚡ €1.99 Streak Supercharge (€0.00 Real Money)';
 
     body.innerHTML = `
       <div class="card wheel-wrap">
@@ -1722,6 +2648,34 @@ class FairCoinSlotsApp {
         </button>
       </div>
 
+      <div class="card vip-pass-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <h2>⚔️ Viking Quest (Stage ${this.state.vikingStage})</h2>
+          <span class="vip-price-tag">Step ${this.state.vikingStep + 1}/${VIKING_QUEST_STEPS.length}</span>
+        </div>
+        <p style="font-size:12px;">Climb the high-stakes Viking ladder to win the Valhalla Grand Hoard! Lose a wager and get knocked back a step.</p>
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;">
+          ${VIKING_QUEST_STEPS.map((st, idx) => {
+            const done = idx < this.state.vikingStep;
+            const current = idx === this.state.vikingStep;
+            const bg = done
+              ? 'rgba(6,214,160,0.28);border-color:#06d6a0;color:#06d6a0'
+              : current
+                ? 'rgba(255,209,102,0.28);border-color:#ffd166;color:#ffd166'
+                : 'rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.16);color:#a79bc2';
+            const ico = done ? '✓' : st.kind === 'paywall' ? '🗝️' : st.kind === 'grand' ? '🏆' : `${idx + 1}`;
+            return `<div style="text-align:center;padding:6px 2px;border-radius:9px;border:1.5px solid;font-size:12px;font-weight:900;${bg}">${ico}</div>`;
+          }).join('')}
+        </div>
+        <div style="background:rgba(0,0,0,0.24);border-radius:12px;padding:9px;border:1px solid rgba(255,255,255,0.12);">
+          <div style="font-size:13px;font-weight:900;color:#ffd166;">${vikingDef.title}</div>
+          <div style="font-size:11px;color:#c7b8e8;margin-top:2px;">${vikingDef.rewardLabel}</div>
+        </div>
+        <button class="action-btn ${vikingDef.kind === 'free' || vikingDef.kind === 'grand' ? 'green' : vikingDef.kind === 'paywall' ? '' : 'pink'}" id="btn-viking-step">
+          ${vikingBtnText}
+        </button>
+      </div>
+
       <div class="card">
         <h3>⏰ 30-Minute Coin Bonus</h3>
         <p>Tap anytime to claim instant bonus coins.</p>
@@ -1732,14 +2686,106 @@ class FairCoinSlotsApp {
 
       <div class="card">
         <h3>📅 Daily Reward (Streak: ${this.state.dailyStreak}d)</h3>
-        <button class="action-btn secondary" id="btn-daily" ${dailyLeft > 0 ? 'disabled' : ''}>
-          ${dailyLeft > 0 ? `Next in ${formatWait(dailyLeft)}` : `Claim Daily + 🎁 Chest`}
-        </button>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <button class="action-btn secondary" id="btn-daily" ${dailyLeft > 0 ? 'disabled' : ''}>
+            ${dailyLeft > 0 ? `Next in ${formatWait(dailyLeft)}` : `Claim Daily + 🎁 Chest`}
+          </button>
+          <button class="action-btn" id="btn-streak-supercharge" style="font-size:12px;">
+            ${streakBtnText}
+          </button>
+        </div>
       </div>
     `;
 
     this.drawWheelCanvas();
     body.querySelector('#btn-spin-wheel')?.addEventListener('click', () => this.spinFortuneWheel());
+
+    body.querySelector('#btn-viking-step')?.addEventListener('click', () => {
+      const st = VIKING_QUEST_STEPS[this.state.vikingStep] ?? VIKING_QUEST_STEPS[0];
+      if (st.kind === 'paywall') {
+        this.handleSimOfferAction({
+          offerId: 'viking_key',
+          title: '🗝️ Gate of Valhalla Key',
+          priceLabel: st.fakePriceLabel || '€4.99',
+          rewardSummary: st.rewardLabel,
+          durationMs: (st.waitSeconds ?? 180) * 1000,
+        });
+        return;
+      }
+      if (st.kind === 'free') {
+        this.state.coins += 120_000_000;
+        this.state.totalWon += 120_000_000;
+        this.state.petTreats += 2;
+        this.state.vikingStep = 1;
+        saveGameState(this.state);
+        this.sfx.playBigWin();
+        this.spawnCoinShower(14);
+        this.showToast('⚔️ Longship loaded! +120M Coins & +2 🍖 Pet Treats!');
+        this.renderAll();
+        return;
+      }
+      if (st.kind === 'grand') {
+        this.state.coins += 3_000_000_000;
+        this.state.totalWon += 3_000_000_000;
+        this.state.jokerCards += 1;
+        this.state.gashaponTokens += 4;
+        this.state.vikingStage += 1;
+        this.state.vikingStep = 0;
+        saveGameState(this.state);
+        this.sfx.playBigWin();
+        this.spawnCoinShower(28);
+        this.spawnCoinFountain(24);
+        this.spawnConfettiBurst(36);
+        this.showToast(`🏆 VALHALLA HOARD! +3B Coins, +1 🃏 Joker & +4 Tokens! Stage ${this.state.vikingStage} begins!`);
+        this.renderAll();
+        return;
+      }
+
+      // Wager step
+      if (this.state.coins < st.costCoins) {
+        this.showToast(`You need ${formatCoins(st.costCoins)} coins to challenge ${st.title}!`);
+        return;
+      }
+      this.state.coins -= st.costCoins;
+      incrementQuest(this.state, 'arcade', 1);
+
+      const hitChance = st.step === 1 ? 0.7 : st.step === 2 ? 0.55 : 0.5;
+      const won = Math.random() < hitChance;
+      if (won) {
+        if (st.step === 1) {
+          this.state.coins += 300_000_000;
+          this.state.totalWon += 300_000_000;
+          this.state.chests += 2;
+          this.state.vikingStep = 2;
+          this.showToast('⚔️ Storm cleared! +300M Coins & +2 Chests!');
+        } else if (st.step === 2) {
+          this.state.coins += 900_000_000;
+          this.state.totalWon += 900_000_000;
+          this.state.gashaponTokens += 2;
+          this.state.vikingStep = 3;
+          this.showToast('⚔️ Berserker defeated! +900M Coins & +2 🫧 Tokens!');
+        } else {
+          this.state.coins += 2_500_000_000;
+          this.state.totalWon += 2_500_000_000;
+          this.state.chests += 4;
+          this.state.vikingStep = 5;
+          this.showToast('🐙 Kraken Slain! +2.5B Coins & +4 Chests! Grand Hoard ready!');
+        }
+        this.sfx.playBigWin();
+        this.spawnCoinShower(18);
+        this.spawnConfettiBurst(24);
+      } else {
+        // Knock back 1 step on Steps 1-2; on Kraken Wager (Step 4) stay past the Valhalla Key wall so player doesn't lose key
+        if (st.step < 4) {
+          this.state.vikingStep = Math.max(0, st.step - 1);
+        }
+        this.sfx.playReelStop(0);
+        this.showToast(`💥 Viking raid repelled! Lost ${formatCoins(st.costCoins)} coins.`);
+      }
+      saveGameState(this.state);
+      this.renderAll();
+    });
+
     body.querySelector('#btn-halfhour')?.addEventListener('click', () => {
       const reward = 80_000_000 * (this.state.fairPassActive ? 3 : 1);
       this.state.coins += reward;
@@ -1762,16 +2808,48 @@ class FairCoinSlotsApp {
       this.showToast(`📅 Day ${this.state.dailyStreak} reward: +${formatCoins(reward)} & +1 Chest!`);
       this.renderAll();
     });
+    body.querySelector('#btn-streak-supercharge')?.addEventListener('click', () => {
+      this.handleSimOfferAction({
+        offerId: 'streak_save',
+        title: '⚡ Daily Streak Supercharge',
+        priceLabel: '€1.99',
+        rewardSummary: '+250M Coins, +2 Treasure Chests & +1 Streak Day',
+        durationMs: 120_000,
+      });
+    });
   }
 
   private renderCardsAndQuestsBody(body: HTMLElement): void {
     const ownedUnique = CARDS.filter((c) => (this.state.cards[c.id] ?? 0) > 0).length;
+    const cardsBoom = getActiveFlashEvent().event.id === 'cards_boom';
     body.innerHTML = `
       <div class="card">
         <h2>🎁 Treasure Chests & Cards (${ownedUnique}/${CARDS.length})</h2>
+        <p style="font-size:12px;">
+          ${cardsBoom ? '🃏 <b style="color:#c084fc;">CARDS BOOM ACTIVE:</b> Opening a chest drops <b>4 cards</b> instead of 3!' : 'Open chests for album cards. Duplicate cards automatically fill your Star Vault!'}
+        </p>
         <button class="action-btn" id="btn-open-chest" ${this.state.chests <= 0 ? 'disabled' : ''}>
-          🎁 Open Chest (${this.state.chests} left)
+          🎁 Open Chest (${this.state.chests} left • ${cardsBoom ? '4' : '3'} cards)
         </button>
+      </div>
+
+      <div class="card vip-pass-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <h3>⭐ Duplicate Star Vault</h3>
+          <span class="vip-price-tag">⭐ ${this.state.duplicateStars} • 🃏 ${this.state.jokerCards} Jokers</span>
+        </div>
+        <p style="font-size:11px;">Duplicate cards convert into Stars (★). Trade Stars for giant coin packs or rare Joker Wild Cards! Tap <b>🃏 Use Joker</b> on any missing card below.</p>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+          <button class="action-btn secondary" data-star-swap="15" ${this.state.duplicateStars < 15 ? 'disabled' : ''} style="font-size:11px;padding:8px 4px;">
+            15 ⭐<br/>300M + 2🎁
+          </button>
+          <button class="action-btn secondary" data-star-swap="35" ${this.state.duplicateStars < 35 ? 'disabled' : ''} style="font-size:11px;padding:8px 4px;">
+            35 ⭐<br/>1B + 🫧 + 5🍖
+          </button>
+          <button class="action-btn green" data-star-swap="60" ${this.state.duplicateStars < 60 ? 'disabled' : ''} style="font-size:11px;padding:8px 4px;">
+            60 ⭐<br/>+1 🃏 Joker
+          </button>
+        </div>
       </div>
 
       <div class="card">
@@ -1810,11 +2888,17 @@ class FairCoinSlotsApp {
               ${setCards
                 .map((c) => {
                   const count = this.state.cards[c.id] ?? 0;
+                  const canJoker = count === 0 && this.state.jokerCards > 0;
                   return `
-                    <div class="collect-card ${count > 0 ? 'owned' : 'missing'}">
+                    <div class="collect-card ${count > 0 ? 'owned' : 'missing'}" ${canJoker ? 'style="opacity:0.9;filter:none;border-color:#06d6a0;"' : ''}>
                       <div class="c-emoji">${c.emoji}</div>
                       <div class="c-name">${c.name}</div>
-                      <div class="c-count">${count > 0 ? `${count}x • ${'★'.repeat(c.stars)}` : c.rarity}</div>
+                      <div class="c-count">${count > 0 ? `${count}x • ${'★'.repeat(c.stars)}` : `${c.rarity} • ${'★'.repeat(c.stars)}`}</div>
+                      ${
+                        canJoker
+                          ? `<button class="action-btn green" data-use-joker="${c.id}" style="margin-top:4px;padding:3px 6px;font-size:10px;width:100%;">🃏 Use Joker</button>`
+                          : ''
+                      }
                     </div>
                   `;
                 })
@@ -1828,11 +2912,63 @@ class FairCoinSlotsApp {
     body.querySelector('#btn-open-chest')?.addEventListener('click', () => {
       if (this.state.chests <= 0) return;
       this.state.chests -= 1;
-      const drawn = openCardChest(this.state);
+      const prevStars = this.state.duplicateStars;
+      const cardCount = getActiveFlashEvent().event.id === 'cards_boom' ? 4 : 3;
+      const drawn = openCardChest(this.state, cardCount);
+      const starsGained = this.state.duplicateStars - prevStars;
       saveGameState(this.state);
       this.sfx.playBigWin();
-      this.showChestModal(drawn);
+      if (starsGained > 0) {
+        this.showToast(`⭐ Duplicates converted to +${starsGained} Vault Stars!`);
+      }
+      this.showChestModal(drawn, starsGained);
       this.renderAll();
+    });
+
+    body.querySelectorAll<HTMLButtonElement>('[data-star-swap]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const cost = Number(btn.dataset.starSwap);
+        if (this.state.duplicateStars < cost) {
+          this.showToast(`You need ${cost} ⭐ Duplicate Stars!`);
+          return;
+        }
+        this.state.duplicateStars -= cost;
+        if (cost === 15) {
+          this.state.coins += 300_000_000;
+          this.state.totalWon += 300_000_000;
+          this.state.chests += 2;
+          this.showToast('⭐ Vault Trade: +300M Coins & +2 Chests!');
+        } else if (cost === 35) {
+          this.state.coins += 1_000_000_000;
+          this.state.totalWon += 1_000_000_000;
+          this.state.gashaponTokens += 1;
+          this.state.petTreats += 5;
+          this.showToast('⭐ Vault Trade: +1B Coins, +1 🫧 Token & +5 🍖 Treats!');
+        } else {
+          this.state.jokerCards += 1;
+          this.showToast('⭐ Vault Trade: +1 🃏 Joker Wild Card!');
+        }
+        saveGameState(this.state);
+        this.sfx.playBigWin();
+        this.spawnCoinShower(16);
+        this.spawnConfettiBurst(20);
+        this.renderAll();
+      });
+    });
+
+    body.querySelectorAll<HTMLButtonElement>('[data-use-joker]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const cardId = btn.dataset.useJoker!;
+        const card = CARDS.find((c) => c.id === cardId);
+        if (!card || this.state.jokerCards <= 0 || (this.state.cards[cardId] ?? 0) > 0) return;
+        this.state.jokerCards -= 1;
+        this.state.cards[cardId] = 1;
+        saveGameState(this.state);
+        this.sfx.playUpgrade();
+        this.spawnConfettiBurst(22);
+        this.showToast(`🃏 Joker Card unlocked ${card.emoji} ${card.name}!`);
+        this.renderAll();
+      });
     });
 
     body.querySelectorAll<HTMLButtonElement>('[data-claim-quest]').forEach((btn) => {
@@ -1895,6 +3031,13 @@ class FairCoinSlotsApp {
         ? '✅ VIP Pass Active This Month'
         : '👑 Buy €5.00 VIP Pass (€0.00 Real Money)';
 
+    const activeSim = this.state.simOfferProcessing;
+    const foxMegaProcessing = activeSim?.offerId === 'fox_mega';
+    const foxMegaBtnLabel =
+      foxMegaProcessing && activeSim
+        ? `⏳ Verifying Bundle (<span id="sim-offer-inline-timer">${this.formatMmSs(activeSim.until - Date.now())}</span>)...`
+        : '🦊 Claim €9.99 Fox Mega Bundle (€0.00 Real Money)';
+
     body.innerHTML = `
       <div class="card vip-pass-card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
@@ -1907,6 +3050,20 @@ class FairCoinSlotsApp {
         </p>
         <button class="action-btn ${claimedThisMonth ? 'green' : ''}" id="btn-buy-vip-pass" ${claimedThisMonth && !processingPass ? 'disabled' : ''}>
           ${vipBtnLabel}
+        </button>
+      </div>
+
+      <div class="card vip-pass-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <h2>🦊 Crazy Fox Mega Bundle</h2>
+          <span class="vip-price-tag">€9.99 • €0 Charged</span>
+        </div>
+        <p>
+          Massive pack: <b>🪙 +2B Coins</b>, <b>🫧 +10 Gashapon Tokens</b>, <b>🍖 +10 Pet Treats</b> & <b>🃏 +1 Joker Wild Card</b>.<br/>
+          <small style="color:#ffd166;">Zero real money — passes 4 confirmations + 4-minute simulated verification.</small>
+        </p>
+        <button class="action-btn" id="btn-buy-fox-mega">
+          ${foxMegaBtnLabel}
         </button>
       </div>
 
@@ -1987,6 +3144,15 @@ class FairCoinSlotsApp {
     `;
 
     body.querySelector('#btn-buy-vip-pass')?.addEventListener('click', () => this.handleVipPassAction());
+    body.querySelector('#btn-buy-fox-mega')?.addEventListener('click', () => {
+      this.handleSimOfferAction({
+        offerId: 'fox_mega',
+        title: '🦊 Crazy Fox Mega Bundle',
+        priceLabel: '€9.99',
+        rewardSummary: '+2B Coins, +10 Gashapon Tokens, +10 Pet Treats & +1 Joker Wild Card',
+        durationMs: 240_000,
+      });
+    });
 
     body.querySelector('#slots-hs-heading')?.addEventListener('click', () => {
       this.leaderboardTapCount += 1;
@@ -2450,16 +3616,25 @@ class FairCoinSlotsApp {
         this.isLuckWheelSpin = false;
         this.wheelPendingSettle = null;
         this.wheelAngle = 0;
+        this.cleanupSubCanvas();
         this.winningCells.clear();
         this.winningLines = [];
         this.lastGambleAmount = 0;
         this.vaultActive = false;
         this.vaultStep = 0;
+        this.hiloActive = false;
+        this.hiloStreak = 0;
+        this.hiloMult = 1.0;
+        this.kenoDrawn = [];
+        this.rouletteLastNum = null;
+        document.querySelectorAll('.frenzy-balloon').forEach((b) => b.remove());
 
         localStorage.removeItem('fair_coin_slots_state_v2');
         localStorage.removeItem('fair_coin_slots_state_v1');
         this.state = loadGameState(this.state.deviceId);
         this.currentGrid = this.buildInitialGrid(this.getActiveMachine());
+        this.resetScratchBoard();
+        this.resetRaidBoard();
         saveGameState(this.state);
         this.syncCharacterRenderers();
         this.sfx.playTap();
@@ -2615,7 +3790,208 @@ class FairCoinSlotsApp {
     });
   }
 
-  private showChestModal(drawn: { emoji: string; name: string; rarity: string }[]): void {
+  private handleSimOfferAction(offer: {
+    offerId: SimOfferProcessingState['offerId'];
+    title: string;
+    priceLabel: string;
+    rewardSummary: string;
+    durationMs: number;
+  }): void {
+    this.sfx.playTap();
+    if (this.state.simOfferProcessing) {
+      if (this.state.simOfferProcessing.until <= Date.now()) {
+        this.completeSimOfferPurchase();
+      } else {
+        if (this.state.simOfferProcessing.offerId !== offer.offerId) {
+          this.showToast(`⏳ ${this.state.simOfferProcessing.title} is currently verifying!`);
+        }
+        this.openSimOfferLoadingModal();
+      }
+      return;
+    }
+    this.openSimOfferConfirmModal(offer, 1);
+  }
+
+  private openSimOfferConfirmModal(
+    offer: {
+      offerId: SimOfferProcessingState['offerId'];
+      title: string;
+      priceLabel: string;
+      rewardSummary: string;
+      durationMs: number;
+    },
+    step: 1 | 2 | 3 | 4
+  ): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    const mins = Math.max(1, Math.round(offer.durationMs / 60_000));
+    const prompts: Record<1 | 2 | 3 | 4, { title: string; msg: string; ok: string }> = {
+      1: {
+        title: `${offer.title} — Step 1/4`,
+        msg: `Activate the <b>${offer.priceLabel} ${offer.title}</b>? No real money is ever charged (€0.00). Pack includes: <b>${offer.rewardSummary}</b>.`,
+        ok: 'OK, Continue (1/4)',
+      },
+      2: {
+        title: '🤔 Are You Sure? — Step 2/4',
+        msg: `Just checking! Simulated checkout takes a <b>${mins}-minute</b> verification wait instead of paying ${offer.priceLabel}. Still continue?`,
+        ok: 'Yes, I Am Sure (2/4)',
+      },
+      3: {
+        title: '⚠️ Really Sure? — Step 3/4',
+        msg: `Zero real money will be charged (€0.00). Confirm you want to wait ${mins}m to claim <b>${offer.title}</b>?`,
+        ok: 'Really Sure (3/4)',
+      },
+      4: {
+        title: '🚀 Final Confirmation — Step 4/4',
+        msg: `Click <b>OK</b> below to start the ${mins}-minute simulated payment verification (€0.00 real money).`,
+        ok: 'OK — Start Verification (4/4)',
+      },
+    };
+
+    const current = prompts[step];
+    box.innerHTML = `
+      <h2 style="margin:0;color:#ffd166;">${current.title}</h2>
+      <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">${current.msg}</p>
+      <div style="font-size:12px;color:#06d6a0;font-weight:800;">Confirmation ${step} of 4 • €0.00 Real Money</div>
+      <div style="display:flex;gap:8px;justify-content:center;">
+        <button class="action-btn secondary" id="sim-confirm-cancel" style="flex:1;">Cancel</button>
+        <button class="action-btn" id="sim-confirm-ok" style="flex:1.4;">${current.ok}</button>
+      </div>
+    `;
+
+    box.querySelector('#sim-confirm-cancel')?.addEventListener('click', () => {
+      backdrop.classList.add('hidden');
+      this.sfx.playTap();
+      this.showToast('Checkout cancelled — €0.00 charged.');
+    });
+
+    box.querySelector('#sim-confirm-ok')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      if (step < 4) {
+        this.openSimOfferConfirmModal(offer, (step + 1) as 2 | 3 | 4);
+      } else {
+        this.state.simOfferProcessing = {
+          offerId: offer.offerId,
+          title: offer.title,
+          priceLabel: offer.priceLabel,
+          rewardSummary: offer.rewardSummary,
+          durationMs: offer.durationMs,
+          until: Date.now() + offer.durationMs,
+        };
+        saveGameState(this.state);
+        this.renderHud();
+        this.renderActiveTab();
+        this.openSimOfferLoadingModal();
+      }
+    });
+  }
+
+  private openSimOfferLoadingModal(): void {
+    const sim = this.state.simOfferProcessing;
+    if (!sim) return;
+    const remaining = sim.until - Date.now();
+    if (remaining <= 0) {
+      this.completeSimOfferPurchase();
+      return;
+    }
+
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    const pct = Math.min(100, Math.max(2, Math.round(((sim.durationMs - remaining) / sim.durationMs) * 100)));
+
+    box.innerHTML = `
+      <h2 style="margin:0;color:#ffd166;">⏳ Processing ${sim.priceLabel} Offer</h2>
+      <div style="font-size:13px;font-weight:800;color:#fff8f0;">${sim.title}</div>
+      <div class="vip-loader-ring" aria-label="Loading"></div>
+      <div style="font-size:24px;font-weight:900;color:#ffd166;letter-spacing:1px;" id="sim-offer-countdown">${this.formatMmSs(remaining)}</div>
+      <div class="vip-progress-track">
+        <div class="vip-progress-fill" id="sim-offer-progress" style="width:${pct}%;"></div>
+      </div>
+      <p style="margin:0;font-size:12px;color:#c7b8e8;">Verifying €0.00 virtual receipt... Reward: <b>${sim.rewardSummary}</b></p>
+      <div style="font-size:11px;color:#06d6a0;font-weight:800;">€0.00 Real Money Charged • Wait for completion!</div>
+      <button class="action-btn secondary" id="sim-minimize-btn">Keep Playing While Loading</button>
+    `;
+
+    box.querySelector('#sim-minimize-btn')?.addEventListener('click', () => {
+      backdrop.classList.add('hidden');
+      this.sfx.playTap();
+      this.showToast(`⏳ ${sim.title} still verifying in background!`);
+    });
+  }
+
+  private completeSimOfferPurchase(): void {
+    const sim = this.state.simOfferProcessing;
+    if (!sim) return;
+    this.state.simOfferProcessing = null;
+
+    let lines: string[] = [];
+    if (sim.offerId === 'viking_key') {
+      this.state.vikingStep = Math.max(this.state.vikingStep, 4);
+      this.state.coins += 600_000_000;
+      this.state.totalWon += 600_000_000;
+      this.state.petTreats += 3;
+      lines = [
+        '🗝️ Gate of Valhalla Unlocked (Step 5 Ready!)',
+        '🪙 +600,000,000 Coins',
+        '🍖 +3 Pet Treats',
+      ];
+    } else if (sim.offerId === 'streak_save') {
+      this.state.coins += 250_000_000;
+      this.state.totalWon += 250_000_000;
+      this.state.chests += 2;
+      this.state.dailyStreak += 1;
+      lines = [
+        '🪙 +250,000,000 Coins',
+        '🎁 +2 Treasure Chests',
+        `📅 Daily Streak Boosted to ${this.state.dailyStreak}d!`,
+      ];
+    } else {
+      this.state.coins += 2_000_000_000;
+      this.state.totalWon += 2_000_000_000;
+      this.state.gashaponTokens += 10;
+      this.state.petTreats += 10;
+      this.state.jokerCards += 1;
+      lines = [
+        '🪙 +2,000,000,000 Coins',
+        '🫧 +10 Gashapon Tokens',
+        '🍖 +10 Pet Treats',
+        '🃏 +1 Joker Wild Card',
+      ];
+    }
+
+    saveGameState(this.state);
+    this.sfx.playBigWin();
+    this.spawnCoinShower(28);
+    this.spawnCoinFountain(24);
+    this.spawnConfettiBurst(36);
+    this.renderAll();
+
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    box.innerHTML = `
+      <h2 style="margin:0;color:#06d6a0;">✅ Payment Completed!</h2>
+      <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">
+        <b>${sim.title}</b> delivered! (<b>€0.00</b> actually charged)
+      </p>
+      <div style="background:rgba(255,209,102,0.14);border:1.5px solid #ffd166;border-radius:14px;padding:10px;font-size:13px;font-weight:800;color:#ffd166;display:flex;flex-direction:column;gap:4px;">
+        ${lines.map((l) => `<div>${l}</div>`).join('')}
+      </div>
+      <button class="action-btn green" id="sim-complete-close">Awesome — Collect Rewards!</button>
+    `;
+
+    box.querySelector('#sim-complete-close')?.addEventListener('click', () => {
+      backdrop.classList.add('hidden');
+      this.sfx.playTap();
+    });
+  }
+
+  private showChestModal(drawn: { emoji: string; name: string; rarity: string }[], starsGained = 0): void {
     const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
     const box = this.root.querySelector<HTMLElement>('#modal-box')!;
     backdrop.classList.remove('hidden');
@@ -2635,6 +4011,11 @@ class FairCoinSlotsApp {
           )
           .join('')}
       </div>
+      ${
+        starsGained > 0
+          ? `<div style="font-size:12px;font-weight:800;color:#ffd166;">⭐ Duplicate cards added +${starsGained} Stars to your Star Vault!</div>`
+          : ''
+      }
       <button class="action-btn" id="close-chest-modal">Add to Album</button>
     `;
 

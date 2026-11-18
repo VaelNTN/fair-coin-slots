@@ -452,3 +452,185 @@ export const SEASON_PASS_STEPS: SeasonPassStep[] = [
   { step: 5, spinsRequired: 80, rewardLabel: '30 Free Spins', rewardType: 'freespins', rewardAmount: 30 },
   { step: 6, spinsRequired: 120, rewardLabel: '2.5B Grand Bonus', rewardType: 'coins', rewardAmount: 2_500_000_000 },
 ];
+
+export type PetId = 'foxy' | 'tiger' | 'rhino';
+
+export interface PetDefinition {
+  id: PetId;
+  name: string;
+  emoji: string;
+  perkTitle: string;
+  description: string;
+  accent: string;
+}
+
+export const PET_CATALOG: PetDefinition[] = [
+  {
+    id: 'foxy',
+    name: 'Crazy Foxy',
+    emoji: '🦊',
+    perkTitle: '+35% Raid & Cannon Loot',
+    description: 'Steals 35% extra coins on Village Attacks & Treasure Raids while awake.',
+    accent: '#ff9f1c',
+  },
+  {
+    id: 'tiger',
+    name: 'Bengal Tiger',
+    emoji: '🐯',
+    perkTitle: '+25% Slot & Roulette Wins',
+    description: 'Boosts slot line wins & roulette payouts by +25% while active.',
+    accent: '#f72585',
+  },
+  {
+    id: 'rhino',
+    name: 'Shield Rhino',
+    emoji: '🦏',
+    perkTitle: '+25% XP & Arcade Boost',
+    description: 'Grants +25% XP and +15% Crash/Keno payouts while awake.',
+    accent: '#4cc9f0',
+  },
+];
+
+export type FlashEventId = 'cards_boom' | 'high_roller' | 'cash_frenzy' | 'raid_madness';
+
+export interface FlashEventDef {
+  id: FlashEventId;
+  name: string;
+  emoji: string;
+  desc: string;
+  color: string;
+}
+
+export const FLASH_EVENTS: FlashEventDef[] = [
+  {
+    id: 'cards_boom',
+    name: 'CARDS BOOM',
+    emoji: '🃏',
+    desc: '+1 Extra Card per Chest & Double Puzzle drops!',
+    color: '#c084fc',
+  },
+  {
+    id: 'high_roller',
+    name: 'HIGH ROLLER',
+    emoji: '🔥',
+    desc: '25B & 50B Mega Slot Bets Unlocked!',
+    color: '#ff5d8f',
+  },
+  {
+    id: 'cash_frenzy',
+    name: 'CASH FRENZY',
+    emoji: '💰',
+    desc: '+35% Bonus Coins on all Slot Wins!',
+    color: '#ffd166',
+  },
+  {
+    id: 'raid_madness',
+    name: 'RAID MADNESS',
+    emoji: '💥',
+    desc: '2x Attack Cannon & Treasure Raid Loot!',
+    color: '#06d6a0',
+  },
+];
+
+export const HIGH_ROLLER_EXTRA_BETS: number[] = [25_000_000_000, 50_000_000_000];
+
+export interface PuzzleChapter {
+  id: string;
+  title: string;
+  rewardCoins: number;
+  rewardChests: number;
+  tiles: string[];
+}
+
+export const PUZZLE_CHAPTERS: PuzzleChapter[] = [
+  {
+    id: 'ch-fox',
+    title: 'Crazy Fox Treasury',
+    rewardCoins: 2_500_000_000,
+    rewardChests: 5,
+    tiles: ['🦊', '🗝️', '💎', '👑', '🪙', '🏺', '🍀', '🎯', '🏆'],
+  },
+  {
+    id: 'ch-pirate',
+    title: 'Lost Pirate Cove',
+    rewardCoins: 3_500_000_000,
+    rewardChests: 6,
+    tiles: ['🏴‍☠️', '⚓', '🗺️', '🦜', '💰', '🧭', '🏝️', '💣', '🔱'],
+  },
+  {
+    id: 'ch-cosmos',
+    title: 'Cosmic Jackpot Star',
+    rewardCoins: 5_000_000_000,
+    rewardChests: 8,
+    tiles: ['🚀', '🪐', '👽', '☄️', '🌟', '🛸', '🌙', '⚡', '🌌'],
+  },
+];
+
+export interface VikingStepDef {
+  step: number;
+  title: string;
+  kind: 'free' | 'bet' | 'paywall' | 'grand';
+  costCoins: number;
+  fakePriceLabel?: string;
+  waitSeconds?: number;
+  rewardLabel: string;
+}
+
+export const VIKING_QUEST_STEPS: VikingStepDef[] = [
+  {
+    step: 0,
+    title: 'Step 1: Longship Provisions',
+    kind: 'free',
+    costCoins: 0,
+    rewardLabel: '+120M Coins & +2 Pet Treats 🍖',
+  },
+  {
+    step: 1,
+    title: 'Step 2: Stormy Crossing',
+    kind: 'bet',
+    costCoins: 150_000_000,
+    rewardLabel: 'Win +300M Coins + 2 Chests (70% Hit)',
+  },
+  {
+    step: 2,
+    title: 'Step 3: Berserker Trial',
+    kind: 'bet',
+    costCoins: 450_000_000,
+    rewardLabel: 'Win +900M Coins + 2 Gashapon Tokens (55% Hit)',
+  },
+  {
+    step: 3,
+    title: 'Step 4: Gate of Valhalla Key',
+    kind: 'paywall',
+    costCoins: 0,
+    fakePriceLabel: '€4.99',
+    waitSeconds: 180,
+    rewardLabel: 'Unlock Key + 600M Coins + 3 Treats (€0.00 Charged!)',
+  },
+  {
+    step: 4,
+    title: 'Step 5: Kraken Wager',
+    kind: 'bet',
+    costCoins: 1_200_000_000,
+    rewardLabel: 'Win +2.5B Coins + 4 Chests (50% Hit)',
+  },
+  {
+    step: 5,
+    title: 'Step 6: Valhalla Grand Hoard',
+    kind: 'grand',
+    costCoins: 0,
+    rewardLabel: '+3B Coins + 1 Joker Wild Card 🃏 + 4 Tokens!',
+  },
+];
+
+export const EUROPEAN_ROULETTE_WHEEL: number[] = [
+  0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29,
+  7, 28, 12, 35, 3, 26,
+];
+
+export const ROULETTE_RED_NUMS = new Set<number>([
+  1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36,
+]);
+
+export const KENO_PAYOUTS = [0, 0, 0.7, 2.5, 8, 35];
+

@@ -1220,3 +1220,178 @@ body {
   border-color: #ff5d8f;
 }
 
+/* Flash Events & Active Pet Bars */
+.flash-event-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 13px;
+  background: linear-gradient(90deg, rgba(155, 93, 229, 0.28), rgba(255, 93, 143, 0.24));
+  border: 1.5px solid #c084fc;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.pet-status-pill {
+  border: 1.5px solid #4cc9f0;
+  background: linear-gradient(135deg, rgba(76, 201, 240, 0.2), rgba(67, 97, 238, 0.25));
+  color: #fff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+/* Floating Balloon Frenzy */
+.frenzy-balloon {
+  position: fixed;
+  z-index: 55;
+  width: 58px;
+  height: 70px;
+  border-radius: 50% 50% 45% 45%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 2px solid #fff3b0;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45), 0 0 18px rgba(255, 209, 102, 0.65);
+  animation: balloonFloat 8.5s linear forwards;
+  color: #fff;
+  font-weight: 900;
+  font-size: 10px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.frenzy-balloon::after {
+  content: '';
+  position: absolute;
+  bottom: -14px;
+  width: 2px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+@keyframes balloonFloat {
+  0% { transform: translateY(105vh) translateX(0px) rotate(-5deg); opacity: 0.95; }
+  50% { transform: translateY(45vh) translateX(24px) rotate(6deg); opacity: 1; }
+  100% { transform: translateY(-120px) translateX(-18px) rotate(-6deg); opacity: 0.85; }
+}
+
+/* Crash History & Hi-Lo Card */
+.crash-history {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.crash-chip {
+  font-size: 11px;
+  font-weight: 900;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.crash-chip.low { color: #ff5d8f; border-color: rgba(255, 93, 143, 0.45); }
+.crash-chip.mid { color: #4cc9f0; border-color: rgba(76, 201, 240, 0.45); }
+.crash-chip.high { color: #06d6a0; border-color: rgba(6, 214, 160, 0.55); }
+
+.hilo-card {
+  width: 84px;
+  height: 116px;
+  margin: 4px auto;
+  border-radius: 14px;
+  background: linear-gradient(160deg, #ffffff, #e2e8f0);
+  border: 3px solid var(--gold);
+  color: #1e293b;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+  font-weight: 900;
+}
+
+.hilo-card.red { color: #dc2626; }
+
+/* Keno 6x4 Grid & Puzzle 3x3 Board */
+.keno-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+}
+
+.keno-num {
+  height: 36px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.keno-num.picked {
+  background: linear-gradient(135deg, #4cc9f0, #4361ee);
+  border-color: #80ffdb;
+}
+
+.keno-num.drawn {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: #ffd166;
+}
+
+.keno-num.hit {
+  background: linear-gradient(135deg, #06d6a0, #ffd166);
+  color: #1b0a00;
+  border-color: #fff;
+  box-shadow: 0 0 10px rgba(6, 214, 160, 0.8);
+}
+
+.puzzle-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  max-width: 240px;
+  margin: 0 auto;
+}
+
+.puzzle-cell {
+  height: 64px;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  background: rgba(15, 6, 33, 0.68);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+}
+
+.puzzle-cell.owned {
+  border-color: var(--gold);
+  background: linear-gradient(145deg, rgba(255, 209, 102, 0.25), rgba(155, 93, 229, 0.28));
+  box-shadow: 0 0 10px rgba(255, 209, 102, 0.25);
+}
+
+.puzzle-cell.missing {
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+
+/* Roulette Quick Bet Grid */
+.roulette-bet-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+
