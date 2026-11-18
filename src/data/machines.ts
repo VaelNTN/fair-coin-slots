@@ -328,7 +328,7 @@ export const CHARACTER_SPECIES_LIST: { id: CharacterSpecies; name: string; emoji
   { id: 'piggy', name: 'Piggy', emoji: '🐷' },
   { id: 'cat', name: 'Kitty', emoji: '🐱' },
   { id: 'panda', name: 'Panda', emoji: '🐼' },
-  { id: 'fox', name: 'Fox', emoji: '🦊' },
+  { id: 'fox', name: 'Lion', emoji: '🦁' },
   { id: 'robot', name: 'Robo', emoji: '🤖' },
   { id: 'dragon', name: 'Dragon', emoji: '🐲' },
 ];
@@ -457,10 +457,10 @@ export interface PetDefinition {
 export const PET_CATALOG: PetDefinition[] = [
   {
     id: 'foxy',
-    name: 'Crazy Foxy',
-    emoji: '🦊',
+    name: 'Lucky Leo',
+    emoji: '🦁',
     perkTitle: '+35% Raid & Cannon Loot',
-    description: 'Steals 35% extra coins on Village Attacks & Treasure Raids while awake.',
+    description: 'Steals 35% extra coins on City Attacks & Treasure Raids while awake.',
     accent: '#ff9f1c',
   },
   {
@@ -542,10 +542,10 @@ export interface PuzzleChapter {
 export const PUZZLE_CHAPTERS: PuzzleChapter[] = [
   {
     id: 'ch-fox',
-    title: 'Crazy Fox Treasury',
+    title: 'Royal Crown Treasury',
     rewardCoins: 2_500_000_000,
     rewardChests: 5,
-    tiles: ['🦊', '🗝️', '💎', '👑', '🪙', '🏺', '🍀', '🎯', '🏆'],
+    tiles: ['👑', '🗝️', '💎', '🦁', '🪙', '🏺', '🍀', '🎯', '🏆'],
   },
   {
     id: 'ch-pirate',

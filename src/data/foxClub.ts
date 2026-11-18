@@ -51,16 +51,16 @@ export interface FoxFriend {
 export const CLUB_TEMPLATES: ClubTemplate[] = [
   {
     id: 'crazy-fox-legends',
-    name: 'Crazy Fox Legends',
-    badge: '🦊',
+    name: 'Royal Crown Legends',
+    badge: '👑',
     motto: 'Spin bold, raid smart, climb all 550+ Worlds together!',
     minLevel: 1,
     baseMembersStars: 1650,
   },
   {
     id: 'royal-spinners',
-    name: 'Royal Gold Spinners',
-    badge: '👑',
+    name: 'Golden Empire Spinners',
+    badge: '🦁',
     motto: 'Daily card trades, spin gifts & nonstop club chests.',
     minLevel: 1,
     baseMembersStars: 2250,
@@ -69,7 +69,7 @@ export const CLUB_TEMPLATES: ClubTemplate[] = [
     id: 'lucky-raiders',
     name: 'Lucky Vault Raiders',
     badge: '💥',
-    motto: '2x Revenge specialists and friendly village pranks!',
+    motto: '2x Revenge specialists and friendly city pranks!',
     minLevel: 1,
     baseMembersStars: 1380,
   },
@@ -77,7 +77,7 @@ export const CLUB_TEMPLATES: ClubTemplate[] = [
     id: 'apex-500-galaxy',
     name: 'Apex 500+ Pioneers',
     badge: '🌌',
-    motto: 'Pushing toward Village 550 & Infinity Fox Galaxy.',
+    motto: 'Pushing toward World 550 & Infinity Crown Galaxy.',
     minLevel: 1,
     baseMembersStars: 3120,
   },
@@ -96,7 +96,7 @@ export const CLUB_CHEST_TIERS: ClubChestTier[] = [
   },
   {
     tier: 2,
-    name: 'Silver Fox Chest',
+    name: 'Silver Royal Chest',
     emoji: '🥈',
     targetStars: 1200,
     rewardCoinsFactor: 1.8,
@@ -116,7 +116,7 @@ export const CLUB_CHEST_TIERS: ClubChestTier[] = [
   },
   {
     tier: 4,
-    name: 'Diamond Fox Chest',
+    name: 'Diamond Royal Chest',
     emoji: '💎',
     targetStars: 5500,
     rewardCoinsFactor: 6.5,
@@ -127,7 +127,7 @@ export const CLUB_CHEST_TIERS: ClubChestTier[] = [
 ];
 
 export const DEFAULT_SQUAD_MEMBERS: SquadMember[] = [
-  { id: 'm1', name: 'Bella Fox', emoji: '🦊', role: 'Leader', villageLevel: 412, weeklyStars: 640, status: 'Online • Sending Spins' },
+  { id: 'm1', name: 'Bella Sterling', emoji: '👑', role: 'Leader', villageLevel: 412, weeklyStars: 640, status: 'Online • Sending Spins' },
   { id: 'm2', name: 'Duke Panda', emoji: '🐼', role: 'Co-Leader', villageLevel: 358, weeklyStars: 515, status: 'Trading Cosmic Cards' },
   { id: 'm3', name: 'Nova Kitty', emoji: '🐱', role: 'Co-Leader', villageLevel: 284, weeklyStars: 440, status: 'Spinning Gold Rush 3x' },
   { id: 'm4', name: 'Rex Dragon', emoji: '🐲', role: 'Elder', villageLevel: 506, weeklyStars: 710, status: 'Apex 500+ Conqueror' },
@@ -138,7 +138,7 @@ export const DEFAULT_SQUAD_MEMBERS: SquadMember[] = [
 ];
 
 export const DEFAULT_FOX_FRIENDS: FoxFriend[] = [
-  { id: 'f1', name: 'Bella Fox', emoji: '🦊', villageLevel: 412, giftReady: true, sentToday: false, prankedToday: false },
+  { id: 'f1', name: 'Bella Sterling', emoji: '👑', villageLevel: 412, giftReady: true, sentToday: false, prankedToday: false },
   { id: 'f2', name: 'Kiki Kitty', emoji: '🐱', villageLevel: 129, giftReady: true, sentToday: false, prankedToday: false },
   { id: 'f3', name: 'Benni Bear', emoji: '🐻', villageLevel: 76, giftReady: true, sentToday: false, prankedToday: false },
   { id: 'f4', name: 'Rex Dragon', emoji: '🐲', villageLevel: 506, giftReady: false, sentToday: false, prankedToday: false },
@@ -147,7 +147,7 @@ export const DEFAULT_FOX_FRIENDS: FoxFriend[] = [
 
 export const EXTRA_FRIEND_POOL: Omit<FoxFriend, 'id' | 'giftReady' | 'sentToday' | 'prankedToday'>[] = [
   { name: 'Blitz Wolf', emoji: '🐺', villageLevel: 318 },
-  { name: 'Amber Fox', emoji: '🦊', villageLevel: 521 },
+  { name: 'Amber Vance', emoji: '🦁', villageLevel: 521 },
   { name: 'Mochi Frog', emoji: '🐸', villageLevel: 44 },
   { name: 'Goldie Duck', emoji: '🦆', villageLevel: 168 },
   { name: 'Turbo Tiger', emoji: '🐯', villageLevel: 392 },
@@ -156,7 +156,7 @@ export const EXTRA_FRIEND_POOL: Omit<FoxFriend, 'id' | 'giftReady' | 'sentToday'
 ];
 
 export const RIVAL_CLUBS = [
-  { name: 'Midnight Foxes', badge: '🌙', baseStars: 4920 },
+  { name: 'Midnight Royals', badge: '🌙', baseStars: 4920 },
   { name: 'Diamond Syndicate', badge: '💎', baseStars: 4180 },
   { name: 'Viking Raiders', badge: '⚔️', baseStars: 3390 },
   { name: 'Neon Rollers', badge: '⚡', baseStars: 2640 },
@@ -166,10 +166,10 @@ export function createInitialClubFeed(): ClubFeedRequest[] {
   return [
     {
       id: 'req-1',
-      memberName: 'Bella Fox',
-      memberEmoji: '🦊',
+      memberName: 'Bella Sterling',
+      memberEmoji: '👑',
       kind: 'spins',
-      message: 'Bella Fox needs spins for Boss Village #410!',
+      message: 'Bella Sterling needs spins for Boss World #410!',
       fulfilled: false,
     },
     {
@@ -178,7 +178,7 @@ export function createInitialClubFeed(): ClubFeedRequest[] {
       memberEmoji: '🐼',
       kind: 'card',
       message: 'Duke Panda is looking for a spare album card.',
-      cardName: 'Miller Fox 🦊',
+      cardName: 'Royal King 👑',
       fulfilled: false,
     },
     {
@@ -194,7 +194,7 @@ export function createInitialClubFeed(): ClubFeedRequest[] {
       memberName: 'Nova Kitty',
       memberEmoji: '🐱',
       kind: 'cheer',
-      message: 'Cheering for your next Village upgrade — keep spinning!',
+      message: 'Cheering for your next City upgrade — keep spinning!',
       fulfilled: false,
     },
   ];

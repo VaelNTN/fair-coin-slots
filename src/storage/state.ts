@@ -13,6 +13,8 @@ import {
   KINGDOM_BUILDINGS,
   PetId,
   QUEST_TEMPLATES,
+  SHOP_ITEMS,
+  ShopItem,
   SLOT_MACHINES,
   STARTER_COINS,
 } from '../data/machines';
@@ -75,9 +77,10 @@ export interface GameState {
   reminderMinutes: number;
   soundEnabled: boolean;
   rescueCount: number;
-  // New character + clothes shop + all social casino mechanics!
+  // Character + Style shop + Duplicate Item Collection
   character: CharacterConfig;
   ownedShopItems: string[];
+  itemCounts: Record<string, number>;
   piggyBankCoins: number;
   shields: number;
   tournamentPoints: number;
@@ -85,7 +88,7 @@ export interface GameState {
   wheelSpins: number;
   wheelSpinsInitialized: boolean;
   slotsFreePlay: boolean;
-  // Crazy Fox / Coin Master / Stake Originals expansion
+  // Royal Arcade & Collectibles expansion
   gashaponTokens: number;
   petTreats: number;
   activePetId: PetId;
@@ -100,7 +103,7 @@ export interface GameState {
   revengeReady: boolean;
   rivalTargetName: string;
   simOfferProcessing: SimOfferProcessingState | null;
-  // 550+ Progressive Worlds & Fox Club ("Achterban")
+  // 550+ Progressive Worlds & Royal Club ("Achterban")
   villageLevel: number;
   villageStars: number[];
   totalStarsEarned: number;
@@ -189,6 +192,12 @@ export function createInitialState(deviceId = generateFallbackDeviceId()): GameS
     quests[q.id] = { progress: 0, claimed: false };
   });
 
+  const starterOwned = ['hat_none', 'eye_none', 'out_tee', 'prop_none', 'aura_none'];
+  const itemCounts: Record<string, number> = {};
+  starterOwned.forEach((id) => {
+    itemCounts[id] = 1;
+  });
+
   return {
     deviceId,
     playerName: 'Player',
@@ -226,7 +235,8 @@ export function createInitialState(deviceId = generateFallbackDeviceId()): GameS
     soundEnabled: true,
     rescueCount: 0,
     character: { ...DEFAULT_CHARACTER },
-    ownedShopItems: ['hat_none', 'eye_none', 'out_tee', 'prop_none', 'aura_none'],
+    ownedShopItems: starterOwned,
+    itemCounts,
     piggyBankCoins: 25_000_000,
     shields: 2,
     tournamentPoints: 0,
@@ -246,14 +256,14 @@ export function createInitialState(deviceId = generateFallbackDeviceId()): GameS
     vikingStage: 1,
     crashHistory: [1.84, 3.12, 1.04, 2.45, 6.2, 1.31],
     revengeReady: false,
-    rivalTargetName: 'Crazy Foxy 🦊',
+    rivalTargetName: 'Baron Blitz ⚡',
     simOfferProcessing: null,
     villageLevel: 1,
     villageStars: Array(BUILDINGS_PER_VILLAGE).fill(0),
     totalStarsEarned: 0,
     clubId: 'crazy-fox-legends',
-    clubName: 'Crazy Fox Legends',
-    clubBadge: '🦊',
+    clubName: 'Royal Crown Legends',
+    clubBadge: '👑',
     clubPoints: 240,
     myClubContribution: 40,
     claimedClubChestTiers: [],
@@ -262,7 +272,7 @@ export function createInitialState(deviceId = generateFallbackDeviceId()): GameS
     lastSpinRequestAt: 0,
     lastCardRequestAt: 0,
     lastCoinRequestAt: 0,
-    friendInviteCode: `FOX-${deviceId.slice(-6).toUpperCase()}`,
+    friendInviteCode: `VIP-${deviceId.slice(-6).toUpperCase()}`,
     debugEventOverride: null,
   };
 }
@@ -274,6 +284,19 @@ export function loadGameState(deviceId?: string): GameState {
     if (!raw) return initial;
     const parsed = JSON.parse(raw) as Partial<GameState>;
     const rawName = typeof parsed.playerName === 'string' ? parsed.playerName.trim() : '';
+    const ownedShopItems = Array.from(new Set([...initial.ownedShopItems, ...(parsed.ownedShopItems ?? [])]));
+    const itemCounts: Record<string, number> = { ...initial.itemCounts, ...(parsed.itemCounts ?? {}) };
+    for (const id of ownedShopItems) {
+      if (!itemCounts[id] || itemCounts[id] < 1) {
+        itemCounts[id] = 1;
+      }
+    }
+    for (const [id, cnt] of Object.entries(itemCounts)) {
+      if (cnt > 0 && !ownedShopItems.includes(id)) {
+        ownedShopItems.push(id);
+      }
+    }
+
     const merged: GameState = {
       ...initial,
       ...parsed,
@@ -288,7 +311,8 @@ export function loadGameState(deviceId?: string): GameState {
       cards: { ...initial.cards, ...(parsed.cards ?? {}) },
       quests: { ...initial.quests, ...(parsed.quests ?? {}) },
       character: { ...DEFAULT_CHARACTER, ...(parsed.character ?? {}) },
-      ownedShopItems: Array.from(new Set([...initial.ownedShopItems, ...(parsed.ownedShopItems ?? [])])),
+      ownedShopItems,
+      itemCounts,
       puzzlePieces: Array.isArray(parsed.puzzlePieces)
         ? Array.from(new Set(parsed.puzzlePieces.filter((n) => typeof n === 'number' && n >= 0 && n < 9)))
         : initial.puzzlePieces,
@@ -316,6 +340,40 @@ export function loadGameState(deviceId?: string): GameState {
       slotsFreePlay: false,
       monthlySpentEur: 0,
     };
+
+    // Sanitize any legacy "Crazy Fox" / "Fox" strings from saved state
+    if (merged.clubName && /fox/i.test(merged.clubName)) {
+      merged.clubName = 'Royal Crown Legends';
+      merged.clubBadge = '👑';
+    }
+    if (merged.clubBadge === '🦊') {
+      merged.clubBadge = '👑';
+    }
+    if (merged.rivalTargetName && /fox/i.test(merged.rivalTargetName)) {
+      merged.rivalTargetName = 'Baron Blitz ⚡';
+    }
+    if (merged.simOfferProcessing && /fox/i.test(merged.simOfferProcessing.title)) {
+      merged.simOfferProcessing = {
+        ...merged.simOfferProcessing,
+        title: '👑 Royal Crown Mega Bundle',
+      };
+    }
+    if (merged.friendInviteCode && merged.friendInviteCode.startsWith('FOX-')) {
+      merged.friendInviteCode = `VIP-${merged.friendInviteCode.slice(4)}`;
+    }
+    merged.friends = merged.friends.map((f) => ({
+      ...f,
+      name: f.name.replace(/Bella Fox/gi, 'Bella Sterling').replace(/Amber Fox/gi, 'Amber Vance').replace(/Fox/gi, 'Royal'),
+      emoji: f.emoji === '🦊' ? '👑' : f.emoji,
+    }));
+    merged.clubFeed = merged.clubFeed.map((entry) => ({
+      ...entry,
+      memberName: entry.memberName.replace(/Bella Fox/gi, 'Bella Sterling').replace(/Fox/gi, 'Royal'),
+      memberEmoji: entry.memberEmoji === '🦊' ? '👑' : entry.memberEmoji,
+      message: entry.message.replace(/Bella Fox/gi, 'Bella Sterling').replace(/Fox/gi, 'Royal'),
+      cardName: entry.cardName ? entry.cardName.replace(/Miller Fox 🦊/gi, 'Royal King 👑').replace(/Fox/gi, 'Royal') : entry.cardName,
+    }));
+
     if (!merged.starterBillionGranted) {
       merged.coins = Math.max(merged.coins, STARTER_COINS);
       merged.starterBillionGranted = true;
@@ -332,6 +390,25 @@ export function loadGameState(deviceId?: string): GameState {
   } catch {
     return initial;
   }
+}
+
+export function grantCollectibleShopItem(
+  state: GameState,
+  targetItemId?: string
+): { item: ShopItem; count: number; isDuplicate: boolean } {
+  const collectiblePool = SHOP_ITEMS.filter((i) => i.priceCoins > 0);
+  const item =
+    (targetItemId ? SHOP_ITEMS.find((i) => i.id === targetItemId) : undefined) ??
+    collectiblePool[Math.floor(Math.random() * collectiblePool.length)] ??
+    SHOP_ITEMS[0];
+
+  const prev = state.itemCounts[item.id] ?? (state.ownedShopItems.includes(item.id) ? 1 : 0);
+  const next = prev + 1;
+  state.itemCounts[item.id] = next;
+  if (!state.ownedShopItems.includes(item.id)) {
+    state.ownedShopItems.push(item.id);
+  }
+  return { item, count: next, isDuplicate: prev >= 1 };
 }
 
 export function saveGameState(state: GameState): void {

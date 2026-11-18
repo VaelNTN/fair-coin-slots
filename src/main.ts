@@ -29,6 +29,7 @@ import {
   KENO_PAYOUTS,
   PET_CATALOG,
   PetId,
+  PUZZLE_CHAPTERS,
   QUEST_TEMPLATES,
   ROULETTE_RED_NUMS,
   SEASON_PASS_STEPS,
@@ -87,6 +88,7 @@ import {
   GameState,
   getCurrentMonthKey,
   getTotalMultiplier,
+  grantCollectibleShopItem,
   grantXp,
   incrementQuest,
   loadGameState,
@@ -100,8 +102,8 @@ import {
 type TabId = 'slots' | 'arcade' | 'club' | 'character' | 'bonuses';
 type ArcadeSubTab = 'crash' | 'casino' | 'fox' | 'highroller' | 'dozer' | 'plinko' | 'scratch' | 'village';
 type ClubSubTab = 'club' | 'friends' | 'village' | 'map';
-type CharacterSubTab = 'studio' | 'pets';
-type BonusSubTab = 'wheel' | 'cards' | 'pass';
+type CharacterSubTab = 'studio' | 'collection' | 'pets';
+type BonusSubTab = 'collection' | 'wheel' | 'cards' | 'pass';
 
 const HALF_HOUR_MS = 30 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -128,7 +130,8 @@ class FairCoinSlotsApp {
   private arcadeSub: ArcadeSubTab = 'crash';
   private clubSub: ClubSubTab = 'village';
   private characterSub: CharacterSubTab = 'studio';
-  private bonusSub: BonusSubTab = 'wheel';
+  private bonusSub: BonusSubTab = 'collection';
+  private collectionFilter: 'all' | 'items' | 'cards' | 'puzzles' = 'all';
   private shopCategory: ShopCategory = 'outfit';
   private studioPreviewMood: MascotMood = 'idle';
   private studioTryOn: Partial<Record<ShopCategory, string>> = {};
@@ -301,6 +304,7 @@ class FairCoinSlotsApp {
         </div>
         <div class="hud-actions">
           <div class="hud-btn-row">
+            <button class="icon-btn" id="btn-collection-vault" aria-label="All Collectibles" title="All Collectibles & Duplicates">📦</button>
             <button class="icon-btn" id="btn-info" aria-label="Game Info">ℹ️</button>
             <button class="icon-btn" id="btn-sound" aria-label="Toggle Sound">🔊</button>
           </div>
@@ -324,7 +328,7 @@ class FairCoinSlotsApp {
         <button class="nav-btn" data-tab="arcade"><span class="nav-ico">🕹️</span><span>Arcade</span></button>
         <button class="nav-btn" data-tab="club"><span class="nav-ico">🏙️</span><span>CITY</span></button>
         <button class="nav-btn" data-tab="character"><span class="nav-ico">👕</span><span>Style</span></button>
-        <button class="nav-btn" data-tab="bonuses"><span class="nav-ico">🎡</span><span>Rewards</span></button>
+        <button class="nav-btn" data-tab="bonuses"><span class="nav-ico">📦</span><span>Vault</span></button>
       </nav>
 
       <div class="modal-backdrop hidden" id="modal-backdrop">
@@ -333,7 +337,21 @@ class FairCoinSlotsApp {
     `;
 
     this.root.querySelectorAll<HTMLButtonElement>('.nav-btn').forEach((btn) => {
-      btn.addEventListener('click', () => this.switchTab(btn.dataset.tab as TabId));
+      btn.addEventListener('click', () => {
+        const targetTab = btn.dataset.tab as TabId;
+        this.switchTab(targetTab);
+        if (targetTab === 'slots') {
+          this.openSlotsSquarePickerModal();
+        } else if (targetTab === 'arcade') {
+          this.openArcadeSquarePickerModal();
+        }
+      });
+    });
+
+    this.root.querySelector('#btn-collection-vault')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      this.bonusSub = 'collection';
+      this.switchTab('bonuses');
     });
 
     this.root.querySelector('#btn-info')?.addEventListener('click', () => {
@@ -374,7 +392,7 @@ class FairCoinSlotsApp {
   private syncCharacterRenderers(): void {
     this.hudCharacter?.setConfig(this.state.character);
     this.previewCharacter?.setConfig(this.state.character);
-    const petEmoji = PET_CATALOG.find((p) => p.id === this.state.activePetId)?.emoji ?? '🦊';
+    const petEmoji = PET_CATALOG.find((p) => p.id === this.state.activePetId)?.emoji ?? '🦁';
     this.cityWorldCtrl?.updateState(
       this.state.villageLevel,
       this.state.villageStars,
@@ -562,7 +580,7 @@ class FairCoinSlotsApp {
       }
       const hudPetTimer = this.root.querySelector<HTMLElement>('#hud-pet-timer');
       if (hudPetTimer) {
-        hudPetTimer.textContent = petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦊 Feed Pet';
+        hudPetTimer.textContent = petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦁 Feed Pet';
       }
     };
     tick();
@@ -713,7 +731,7 @@ class FairCoinSlotsApp {
         : `<button class="vip-pill" id="btn-vip-quick">👑 €5.00 VIP Pass</button>`;
 
     const petPillHtml = `<button class="pet-status-pill" id="btn-hud-pet"><span id="hud-pet-timer">${
-      petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦊 Feed Pet'
+      petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦁 Feed Pet'
     }</span></button>`;
 
     const worldPillHtml = `<button class="world-pill" id="btn-hud-world">🏙️ W${this.state.villageLevel}/${TOTAL_WORLD_LEVELS}+ (${stars}/${STARS_PER_VILLAGE}★)</button>`;
@@ -733,18 +751,12 @@ class FairCoinSlotsApp {
         </span>
       </div>
 
-      <div class="machine-strip">
-        ${SLOT_MACHINES.map((m) => {
-          const unlocked = this.state.level >= m.unlockLevel;
-          const active = m.id === machine.id;
-          return `
-            <button class="machine-chip ${active ? 'active' : ''} ${unlocked ? '' : 'locked'}" data-machine="${m.id}">
-              <span>${m.badgeEmoji}</span>
-              <span>${m.name}</span>
-              ${unlocked ? '' : `<small>🔒L${m.unlockLevel}</small>`}
-            </button>
-          `;
-        }).join('')}
+      <div class="picker-header-bar" id="btn-open-slots-picker" style="cursor:pointer;">
+        <div class="picker-current-label">
+          <span style="font-size:20px;">${machine.badgeEmoji}</span>
+          <span>${machine.name}</span>
+        </div>
+        <button type="button" class="picker-open-btn">⊞ All Slots (${SLOT_MACHINES.length})</button>
       </div>
 
       <div class="jackpot-bar">
@@ -818,24 +830,10 @@ class FairCoinSlotsApp {
       </div>
     `;
 
-    panel.querySelectorAll<HTMLButtonElement>('.machine-chip').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        if (this.isSpinning) return;
-        const target = SLOT_MACHINES.find((m) => m.id === btn.dataset.machine);
-        if (!target) return;
-        if (this.state.level < target.unlockLevel) {
-          this.showToast(`Reach Level ${target.unlockLevel} to unlock ${target.name}!`);
-          return;
-        }
-        this.state.activeMachineId = target.id;
-        this.currentGrid = this.buildInitialGrid(target);
-        this.winningCells.clear();
-        this.winningLines = [];
-        this.lastGambleAmount = 0;
-        this.sfx.playTap();
-        saveGameState(this.state);
-        this.renderSlotsTab(`${target.badgeEmoji} Playing ${target.name}!`);
-      });
+    panel.querySelector('#btn-open-slots-picker')?.addEventListener('click', () => {
+      if (this.isSpinning) return;
+      this.sfx.playTap();
+      this.openSlotsSquarePickerModal();
     });
 
     panel.querySelector('#btn-piggy-break')?.addEventListener('click', () => {
@@ -1116,7 +1114,7 @@ class FairCoinSlotsApp {
       this.state.freeSpinMultiplier = this.state.fairPassActive ? 3 : 2;
     }
 
-    // Bonus Crazy Fox collectibles & Fox Club squad activity from spins
+    // Bonus collectibles & Royal Club squad activity from spins
     addClubActivityPoints(this.state, finalWin > 0 ? 12 : 5);
 
     const extraDrops: string[] = [];
@@ -1143,6 +1141,13 @@ class FairCoinSlotsApp {
         extraDrops.push('🥉 Bronze Card Pack!');
       }
     }
+    if (Math.random() < 0.07) {
+      const drop = grantCollectibleShopItem(this.state);
+      if (drop.isDuplicate) {
+        this.state.duplicateStars += 4;
+      }
+      extraDrops.push(`${drop.item.emoji} ${drop.item.name} (×${drop.count})`);
+    }
     if (Math.random() < 0.12) {
       this.state.petTreats += 1;
       extraDrops.push('+1 🍖 Treat');
@@ -1153,16 +1158,16 @@ class FairCoinSlotsApp {
     }
     if (Math.random() < 0.05) {
       this.state.wheelSpins += 3;
-      extraDrops.push('🦊 Club Gift: +3 Wheel Spins');
+      extraDrops.push('👑 Club Gift: +3 Wheel Spins');
     }
     const rivalRaidChance = Math.min(0.18, 0.08 + Math.floor(this.state.villageLevel / 60) * 0.01);
     if (Math.random() < rivalRaidChance && !this.state.revengeReady) {
       if (this.state.shields > 0) {
         this.state.shields -= 1;
-        extraDrops.push('🛡️ Shield blocked Rival Foxy!');
+        extraDrops.push('🛡️ Shield blocked Baron Blitz!');
       } else {
         this.state.revengeReady = true;
-        extraDrops.push('🦊 Rival Foxy raided you! 2x REVENGE ready!');
+        extraDrops.push('⚡ Baron Blitz raided you! 2x REVENGE ready!');
       }
     }
 
@@ -1314,30 +1319,137 @@ class FairCoinSlotsApp {
     renderModal(false);
   }
 
-  // ===================== 2. ARCADE TAB (Crash, Casino, Fox Gashapon, Dozer, Plinko, High-Roller, Lucky Games, Village & Cannon) =====================
+  private getArcadeOptionsList(): { id: ArcadeSubTab; ico: string; title: string; sub: string }[] {
+    return [
+      { id: 'crash', ico: '🚀', title: 'Crash & Hi-Lo', sub: '100x Rocket' },
+      { id: 'casino', ico: '🎡', title: 'Roulette & Keno', sub: '37-Pocket' },
+      { id: 'fox', ico: '🫧', title: 'Royal Gashapon', sub: 'Capsules' },
+      { id: 'highroller', ico: '🔥', title: 'Flip & Mines', sub: '50/50 & 5x5' },
+      { id: 'dozer', ico: '🪙', title: 'Coin Dozer', sub: 'Pusher Table' },
+      { id: 'plinko', ico: '🟢', title: 'Neon Plinko', sub: '100x Pegs' },
+      { id: 'scratch', ico: '🎲', title: 'Scratch & Dice', sub: 'Instant Win' },
+      { id: 'village', ico: '💥', title: 'Raid & Cannon', sub: this.state.revengeReady ? '⚡ 2x Revenge!' : 'Boss Loot' },
+    ];
+  }
+
+  private openSlotsSquarePickerModal(): void {
+    if (this.isSpinning) return;
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    const current = this.getActiveMachine();
+    backdrop.classList.remove('hidden');
+
+    box.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+        <h2 style="margin:0;color:#ffd166;font-size:17px;">🎰 Select Slot Machine</h2>
+        <button class="icon-btn" id="btn-close-slot-picker">✕</button>
+      </div>
+      <div class="square-picker-grid">
+        ${SLOT_MACHINES.map((m) => {
+          const unlocked = this.state.level >= m.unlockLevel;
+          const active = m.id === current.id;
+          return `
+            <button type="button" class="square-option-tile ${active ? 'active' : ''} ${unlocked ? '' : 'locked'}" data-pick-slot="${m.id}">
+              <div class="square-tile-ico">${m.badgeEmoji}</div>
+              <div class="square-tile-title">${m.name}</div>
+              <div class="square-tile-sub">${active ? 'PLAYING ✓' : unlocked ? 'PLAY NOW' : `🔒 Lv.${m.unlockLevel}`}</div>
+            </button>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    box.querySelector('#btn-close-slot-picker')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      backdrop.classList.add('hidden');
+    });
+
+    box.querySelectorAll<HTMLButtonElement>('[data-pick-slot]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = SLOT_MACHINES.find((m) => m.id === btn.dataset.pickSlot);
+        if (!target) return;
+        if (this.state.level < target.unlockLevel) {
+          this.showToast(`Reach Level ${target.unlockLevel} to unlock ${target.name}!`);
+          return;
+        }
+        this.state.activeMachineId = target.id;
+        this.currentGrid = this.buildInitialGrid(target);
+        this.winningCells.clear();
+        this.winningLines = [];
+        this.lastGambleAmount = 0;
+        this.sfx.playTap();
+        saveGameState(this.state);
+        backdrop.classList.add('hidden');
+        this.renderSlotsTab(`${target.badgeEmoji} Playing ${target.name}!`);
+      });
+    });
+  }
+
+  private openArcadeSquarePickerModal(): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    const options = this.getArcadeOptionsList();
+    backdrop.classList.remove('hidden');
+
+    box.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+        <h2 style="margin:0;color:#ffd166;font-size:17px;">🕹️ Select Arcade Game</h2>
+        <button class="icon-btn" id="btn-close-arcade-picker">✕</button>
+      </div>
+      <div class="square-picker-grid">
+        ${options
+          .map((g) => {
+            const active = this.arcadeSub === g.id;
+            return `
+              <button type="button" class="square-option-tile ${active ? 'active' : ''}" data-pick-arcade="${g.id}">
+                <div class="square-tile-ico">${g.ico}</div>
+                <div class="square-tile-title">${g.title}</div>
+                <div class="square-tile-sub">${active ? 'ACTIVE ✓' : g.sub}</div>
+              </button>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+
+    box.querySelector('#btn-close-arcade-picker')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      backdrop.classList.add('hidden');
+    });
+
+    box.querySelectorAll<HTMLButtonElement>('[data-pick-arcade]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const picked = btn.dataset.pickArcade as ArcadeSubTab;
+        if (!picked) return;
+        this.cleanupSubCanvas();
+        this.arcadeSub = picked;
+        this.sfx.playTap();
+        backdrop.classList.add('hidden');
+        this.renderArcadeTab();
+      });
+    });
+  }
+
+  // ===================== 2. ARCADE TAB (Square Grid Picker + 8 Arcade Games) =====================
   private renderArcadeTab(): void {
     const panel = this.root.querySelector<HTMLElement>('#tab-arcade')!;
+    const options = this.getArcadeOptionsList();
+    const cur = options.find((g) => g.id === this.arcadeSub) ?? options[0];
+
     panel.innerHTML = `
-      <div class="subtab-strip">
-        <button class="subtab-btn ${this.arcadeSub === 'crash' ? 'active' : ''}" data-sub="crash">🚀 Crash & Hi-Lo</button>
-        <button class="subtab-btn ${this.arcadeSub === 'casino' ? 'active' : ''}" data-sub="casino">🎡 Roulette & Keno</button>
-        <button class="subtab-btn ${this.arcadeSub === 'fox' ? 'active' : ''}" data-sub="fox">🫧 Fox Gashapon</button>
-        <button class="subtab-btn ${this.arcadeSub === 'highroller' ? 'active' : ''}" data-sub="highroller">🔥 Flip & Mines</button>
-        <button class="subtab-btn ${this.arcadeSub === 'dozer' ? 'active' : ''}" data-sub="dozer">🪙 Dozer</button>
-        <button class="subtab-btn ${this.arcadeSub === 'plinko' ? 'active' : ''}" data-sub="plinko">🟢 Plinko</button>
-        <button class="subtab-btn ${this.arcadeSub === 'scratch' ? 'active' : ''}" data-sub="scratch">🎲 Lucky</button>
-        <button class="subtab-btn ${this.arcadeSub === 'village' ? 'active' : ''}" data-sub="village">${this.state.revengeReady ? '⚡ Revenge!' : '💥 Raid & Village'}</button>
+      <div class="picker-header-bar" id="btn-open-arcade-picker" style="cursor:pointer;">
+        <div class="picker-current-label">
+          <span style="font-size:20px;">${cur.ico}</span>
+          <span>${cur.title}</span>
+        </div>
+        <button type="button" class="picker-open-btn">⊞ All Games (${options.length})</button>
       </div>
       <div id="arcade-body" style="display:flex;flex-direction:column;gap:10px;"></div>
     `;
 
-    panel.querySelectorAll<HTMLButtonElement>('[data-sub]').forEach((b) => {
-      b.addEventListener('click', () => {
-        this.cleanupSubCanvas();
-        this.arcadeSub = b.dataset.sub as ArcadeSubTab;
-        this.sfx.playTap();
-        this.renderArcadeTab();
-      });
+    panel.querySelector('#btn-open-arcade-picker')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      this.openArcadeSquarePickerModal();
     });
 
     const body = panel.querySelector<HTMLElement>('#arcade-body')!;
@@ -1783,8 +1895,8 @@ class FairCoinSlotsApp {
 
     body.innerHTML = `
       <div class="card" style="align-items:center;text-align:center;">
-        <h2>🫧 Crazy Fox Gashapon</h2>
-        <p>Turn the capsule crank to pop rare <b>🧩 Puzzle Pieces</b>, <b>🍖 Pet Treats</b>, <b>🃏 Joker Cards</b> & Jackpots!</p>
+        <h2>🫧 Royal Capsule Gashapon</h2>
+        <p>Turn the capsule crank to pop rare <b>🧩 Puzzle Pieces</b>, <b>👕 Collectible Gear</b>, <b>🍖 Pet Treats</b> & <b>🃏 Joker Cards</b>!</p>
         <div style="font-size:12px;font-weight:800;color:#ffd166;">
           🫧 Tokens: <b>${this.state.gashaponTokens}</b> • 🍖 Treats: <b>${this.state.petTreats}</b> • 🃏 Jokers: <b>${this.state.jokerCards}</b>
         </div>
@@ -1839,22 +1951,28 @@ class FairCoinSlotsApp {
       this.gashaponCtrl.crank(capColor, () => {
         const roll = Math.random();
         let prizeMsg = '';
-        if (roll < 0.36) {
+        if (roll < 0.34) {
           const puz = grantRandomPuzzlePiece(this.state);
           if (puz.completedChapter) {
             prizeMsg = `🎉 PUZZLE COMPLETE! +${formatCoins(puz.completedChapter.rewardCoins)} +🃏 Joker!`;
           } else {
             prizeMsg = `🫧 Capsule opened: 🧩 Puzzle Piece #${(puz.pieceIdx ?? 0) + 1}!`;
           }
-        } else if (roll < 0.62) {
+        } else if (roll < 0.56) {
+          const drop = grantCollectibleShopItem(this.state);
+          if (drop.isDuplicate) {
+            this.state.duplicateStars += 5;
+          }
+          prizeMsg = `🫧 Capsule Item: ${drop.item.emoji} ${drop.item.name} (Owned ×${drop.count})!`;
+        } else if (roll < 0.75) {
           this.state.petTreats += 3;
           prizeMsg = '🫧 Capsule opened: +3 🍖 Pet Treats!';
-        } else if (roll < 0.85) {
+        } else if (roll < 0.90) {
           const coins = 85_000_000;
           this.state.coins += coins;
           this.state.totalWon += coins;
           prizeMsg = `🫧 Capsule opened: +🪙 ${formatCoins(coins)} Coins!`;
-        } else if (roll < 0.95) {
+        } else if (roll < 0.96) {
           this.state.chests += 2;
           this.state.shields = Math.min(3, this.state.shields + 1);
           prizeMsg = '🫧 Capsule opened: +2 🎁 Chests & +1 🛡️ Shield!';
@@ -2356,7 +2474,7 @@ class FairCoinSlotsApp {
         this.state.coins += loot;
         this.state.totalWon += loot;
         this.state.shields = Math.min(3, this.state.shields + (shielded ? 0 : 1));
-        this.state.rivalTargetName = Math.random() < 0.5 ? 'Crazy Foxy 🦊' : 'King Croc 🐊';
+        this.state.rivalTargetName = Math.random() < 0.5 ? 'Baron Blitz ⚡' : 'King Croc 🐊';
         saveGameState(this.state);
 
         if (shielded) {
@@ -2506,13 +2624,13 @@ class FairCoinSlotsApp {
     addClubActivityPoints(this.state, 120);
     grantXp(this.state, 260);
 
-    // Push celebratory feed entry in Fox Club ("Achterban")
+    // Push celebratory feed entry in Royal Club ("Achterban")
     const myName = this.state.playerName.trim() || 'Player';
     this.state.clubFeed = [
       {
         id: `clear-${Date.now()}`,
-        memberName: 'Bella Fox',
-        memberEmoji: '🦊',
+        memberName: 'Bella Sterling',
+        memberEmoji: '👑',
         kind: 'cheer' as const,
         message: `Squad cheers! ${myName} conquered World ${def.level} (${def.title})!`,
         fulfilled: false,
@@ -2651,7 +2769,7 @@ class FairCoinSlotsApp {
       );
       this.renderHud();
 
-      const petEmoji = PET_CATALOG.find((p) => p.id === this.state.activePetId)?.emoji ?? '🦊';
+      const petEmoji = PET_CATALOG.find((p) => p.id === this.state.activePetId)?.emoji ?? '🦁';
       this.cityWorldCtrl?.updateState(
         this.state.villageLevel,
         this.state.villageStars,
@@ -2667,7 +2785,7 @@ class FairCoinSlotsApp {
     const canvas = container.querySelector<HTMLCanvasElement>('#village-panorama-canvas');
     if (canvas) {
       this.cityWorldCtrl?.destroy();
-      const petEmoji = PET_CATALOG.find((p) => p.id === this.state.activePetId)?.emoji ?? '🦊';
+      const petEmoji = PET_CATALOG.find((p) => p.id === this.state.activePetId)?.emoji ?? '🦁';
       this.cityWorldCtrl = new CityWorldController(
         canvas,
         this.state.villageLevel,
@@ -2697,7 +2815,7 @@ class FairCoinSlotsApp {
     container.querySelector('#btn-complete-world')?.addEventListener('click', () => this.completeCurrentWorld());
   }
 
-  // ===================== 3. CITY & WORLD TAB (Interactive City World, 550+ Map, Friends & Fox Club) =====================
+  // ===================== 3. CITY & WORLD TAB (Interactive City World, 550+ Map, Friends & Royal Club) =====================
   private renderClubAndWorldTab(): void {
     const panel = this.root.querySelector<HTMLElement>('#tab-club')!;
     const readyGifts = this.state.friends.filter((f) => f.giftReady).length;
@@ -2708,7 +2826,7 @@ class FairCoinSlotsApp {
         <button class="subtab-btn ${this.clubSub === 'village' ? 'active' : ''}" data-clubsub="village">🏙️ City Lv.${this.state.villageLevel} (${stars}/${STARS_PER_VILLAGE}★)</button>
         <button class="subtab-btn ${this.clubSub === 'map' ? 'active' : ''}" data-clubsub="map">🗺️ ${TOTAL_WORLD_LEVELS}+ Map</button>
         <button class="subtab-btn ${this.clubSub === 'friends' ? 'active' : ''}" data-clubsub="friends">👥 Friends${readyGifts > 0 ? ` (${readyGifts}🎁)` : ''}</button>
-        <button class="subtab-btn ${this.clubSub === 'club' ? 'active' : ''}" data-clubsub="club">🦊 Fox Club</button>
+        <button class="subtab-btn ${this.clubSub === 'club' ? 'active' : ''}" data-clubsub="club">🛡️ Royal Club</button>
       </div>
       <div id="club-body" style="display:flex;flex-direction:column;gap:10px;"></div>
     `;
@@ -2799,7 +2917,7 @@ class FairCoinSlotsApp {
 
       <div class="card">
         <h3>🙏 Ask Your Achterban (Squad Help)</h3>
-        <p style="font-size:12px;">Request spins, album cards, or coin boosts directly from your Fox Club!</p>
+        <p style="font-size:12px;">Request spins, album cards, or coin boosts directly from your Royal Club!</p>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
           <button class="action-btn green" id="btn-req-spins" ${spinCd > 0 ? 'disabled' : ''} style="font-size:11px;padding:8px 4px;">
             ${spinCd > 0 ? `⏳ ${this.formatMmSs(spinCd)}` : '🎡 Request Spins'}
@@ -2887,7 +3005,7 @@ class FairCoinSlotsApp {
       this.showClubSwitcher = false;
       saveGameState(this.state);
       this.sfx.playTap();
-      this.showToast(`🦊 Club renamed to "${next}"!`);
+      this.showToast(`👑 Club renamed to "${next}"!`);
       this.renderClubAndWorldTab();
     });
 
@@ -2936,7 +3054,7 @@ class FairCoinSlotsApp {
       saveGameState(this.state);
       this.sfx.playBigWin();
       this.spawnConfettiBurst(16);
-      this.showToast(`🦊 Squad sent you +${gain} Wheel Spins!`);
+      this.showToast(`👑 Squad sent you +${gain} Wheel Spins!`);
       this.renderClubAndWorldTab();
     });
 
@@ -2947,7 +3065,7 @@ class FairCoinSlotsApp {
       if (missing.length > 0) {
         const picked = missing[Math.floor(Math.random() * missing.length)];
         this.state.cards[picked.id] = (this.state.cards[picked.id] ?? 0) + 1;
-        this.showToast(`🃏 Bella Fox gifted missing card: ${picked.emoji} ${picked.name}!`);
+        this.showToast(`🃏 Bella Sterling gifted missing card: ${picked.emoji} ${picked.name}!`);
       } else {
         this.state.duplicateStars += 15;
         this.showToast('⭐ Album full! Squad sent +15 Duplicate Stars!');
@@ -3017,7 +3135,7 @@ class FairCoinSlotsApp {
       </div>
 
       <div class="card">
-        <h3>🦊 Friends & Supporters (${this.state.friends.length})</h3>
+        <h3>👥 Friends & Supporters (${this.state.friends.length})</h3>
         ${this.state.friends
           .map(
             (f) => `
@@ -3060,7 +3178,7 @@ class FairCoinSlotsApp {
         });
         saveGameState(this.state);
         this.sfx.playBigWin();
-        this.showToast('🔄 Refreshed friend gifts across your Fox Squad!');
+        this.showToast('🔄 Refreshed friend gifts across your Royal Squad!');
         this.renderClubAndWorldTab();
         return;
       }
@@ -3223,16 +3341,35 @@ class FairCoinSlotsApp {
     const subNavHtml = `
       <div class="subtab-strip">
         <button class="subtab-btn ${this.characterSub === 'studio' ? 'active' : ''}" data-csub="studio">👕 Mascot & Shop</button>
-        <button class="subtab-btn ${this.characterSub === 'pets' ? 'active' : ''}" data-csub="pets">🦊 Lucky Pets (${this.state.petTreats} 🍖)</button>
+        <button class="subtab-btn ${this.characterSub === 'collection' ? 'active' : ''}" data-csub="collection">📦 All Collectibles</button>
+        <button class="subtab-btn ${this.characterSub === 'pets' ? 'active' : ''}" data-csub="pets">🦁 Lucky Pets (${this.state.petTreats} 🍖)</button>
       </div>
     `;
+
+    if (this.characterSub === 'collection') {
+      panel.innerHTML = `
+        ${subNavHtml}
+        <div id="char-collection-body" style="display:flex;flex-direction:column;gap:10px;"></div>
+      `;
+      panel.querySelectorAll<HTMLButtonElement>('[data-csub]').forEach((b) => {
+        b.addEventListener('click', () => {
+          this.cleanupSubCanvas();
+          this.characterSub = b.dataset.csub as CharacterSubTab;
+          this.sfx.playTap();
+          this.renderCharacterTab();
+        });
+      });
+      const colBody = panel.querySelector<HTMLElement>('#char-collection-body')!;
+      this.renderMasterCollectionBody(colBody);
+      return;
+    }
 
     if (this.characterSub === 'pets') {
       panel.innerHTML = `
         ${subNavHtml}
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;">
-            <h2>🦊 Active Companion Pet</h2>
+            <h2>🦁 Active Companion Pet</h2>
             <span class="vip-price-tag" id="pet-boost-timer">${petBoost.pet ? this.formatMmSs(petBoost.remainingMs) : 'Asleep'}</span>
           </div>
           <p>Feed your chosen pet <b>1 🍖 Treat</b> to wake it for <b>15 minutes</b> of live bonuses! Treats drop from Slots, Gashapon & Balloons.</p>
@@ -3362,9 +3499,9 @@ class FairCoinSlotsApp {
       <div class="card" id="char-shop-card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
           <h2>🛍️ Luxury Style Shop</h2>
-          <span class="shop-price-pill trillion">Billions & Trillions Tier</span>
+          <span class="shop-price-pill trillion">Collect & Stack Duplicates</span>
         </div>
-        <p style="font-size:11px;">Tap <b>👁️ Try</b> on any item to preview it live on your mascot before spending Billions/Trillions!</p>
+        <p style="font-size:11px;">Tap <b>👁️ Try</b> to preview any item live, or tap <b>+1 Copy</b> to stack duplicate copies in your Collection Vault!</p>
         <div class="subtab-strip" id="char-shop-cats">
           ${catLabels.map((cat) => `<button class="subtab-btn" data-shopcat="${cat.id}">${cat.label}</button>`).join('')}
         </div>
@@ -3490,9 +3627,7 @@ class FairCoinSlotsApp {
           this.state.coins -= totalTryCost;
           for (const it of tryItems) {
             if (!it) continue;
-            if (!this.state.ownedShopItems.includes(it.id)) {
-              this.state.ownedShopItems.push(it.id);
-            }
+            grantCollectibleShopItem(this.state, it.id);
             this.equipItem(it.category, it.id);
           }
           this.studioTryOn = {};
@@ -3636,12 +3771,18 @@ class FairCoinSlotsApp {
       shopGrid.innerHTML = items
         .map((item) => {
           const owned = this.state.ownedShopItems.includes(item.id) || item.priceCoins === 0;
+          const count = this.state.itemCounts[item.id] ?? (owned ? 1 : 0);
           const equipped = this.isItemEquipped(item.category, item.id);
           const trying = this.studioTryOn[item.category] === item.id;
           const isTrillion = item.priceCoins >= 1_000_000_000_000;
           const priceLabel = item.priceCoins === 0 ? 'Free' : `🪙 ${formatCoins(item.priceCoins)}`;
           return `
-            <div class="shop-item ${equipped ? 'equipped' : ''} ${trying ? 'trying' : ''}">
+            <div class="shop-item ${equipped ? 'equipped' : ''} ${trying ? 'trying' : ''}" style="position:relative;">
+              ${
+                count > 0
+                  ? `<span class="dup-count-badge ${count > 1 ? 'dup' : ''}">${count > 1 ? `🔥 ×${count}` : `✓ ×1`}</span>`
+                  : ''
+              }
               <div class="s-emoji" data-tryitem="${item.id}" title="Tap to preview">${item.emoji}</div>
               <div class="s-name">${item.name}</div>
               <span class="shop-price-pill ${isTrillion ? 'trillion' : ''}">${priceLabel}</span>
@@ -3650,7 +3791,9 @@ class FairCoinSlotsApp {
                 ${
                   !owned
                     ? `<button class="action-btn secondary" data-tryitem="${item.id}" style="padding:7px 8px;font-size:11px;">${trying ? '👁️ On' : '👁️ Try'}</button>`
-                    : ''
+                    : item.priceCoins > 0
+                      ? `<button class="action-btn secondary" data-buydup="${item.id}" title="Buy another duplicate copy" style="padding:7px 6px;font-size:10px;">+1 Copy</button>`
+                      : ''
                 }
                 <button class="action-btn ${equipped ? 'green' : owned ? 'secondary' : ''}" data-shopitem="${item.id}" style="flex:1;padding:7px 8px;font-size:11px;">
                   ${equipped ? '✓ Equipped' : owned ? 'Equip' : `Buy ${formatCoins(item.priceCoins)}`}
@@ -3675,6 +3818,26 @@ class FairCoinSlotsApp {
         });
       });
 
+      shopGrid.querySelectorAll<HTMLButtonElement>('[data-buydup]').forEach((b) => {
+        b.addEventListener('click', () => {
+          const item = SHOP_ITEMS.find((x) => x.id === b.dataset.buydup);
+          if (!item || item.priceCoins <= 0) return;
+          if (this.state.coins < item.priceCoins) {
+            this.showToast(`You need 🪙 ${formatCoins(item.priceCoins)} coins for another copy!`);
+            return;
+          }
+          this.state.coins -= item.priceCoins;
+          const res = grantCollectibleShopItem(this.state, item.id);
+          this.state.duplicateStars += 5;
+          saveGameState(this.state);
+          this.sfx.playUpgradePitch(4);
+          this.spawnConfettiBurst(18);
+          this.showToast(`🔥 Collected Duplicate ${item.emoji} ${item.name} (×${res.count}) +5 ⭐!`);
+          this.renderHud();
+          this.refreshCharacterStudio(panel);
+        });
+      });
+
       shopGrid.querySelectorAll<HTMLButtonElement>('[data-shopitem]').forEach((b) => {
         b.addEventListener('click', () => {
           const item = SHOP_ITEMS.find((x) => x.id === b.dataset.shopitem);
@@ -3688,7 +3851,7 @@ class FairCoinSlotsApp {
               return;
             }
             this.state.coins -= item.priceCoins;
-            this.state.ownedShopItems.push(item.id);
+            grantCollectibleShopItem(this.state, item.id);
             this.sfx.playUpgradePitch(4);
             this.spawnConfettiBurst(20);
             this.showToast(`🛍️ Bought & equipped ${item.name} for 🪙 ${formatCoins(item.priceCoins)}!`);
@@ -3722,14 +3885,15 @@ class FairCoinSlotsApp {
     else this.state.character.auraId = id;
   }
 
-  // ===================== 4. REWARDS TAB (Wheel, Cards & Quests, Pass & Ranks) =====================
+  // ===================== 4. REWARDS & COLLECTION VAULT TAB =====================
   private renderBonusesTab(): void {
     const panel = this.root.querySelector<HTMLElement>('#tab-bonuses')!;
     panel.innerHTML = `
       <div class="subtab-strip">
+        <button class="subtab-btn ${this.bonusSub === 'collection' ? 'active' : ''}" data-bsub="collection">📦 All Collectibles</button>
         <button class="subtab-btn ${this.bonusSub === 'wheel' ? 'active' : ''}" data-bsub="wheel">🎡 Wheel & Timers</button>
         <button class="subtab-btn ${this.bonusSub === 'cards' ? 'active' : ''}" data-bsub="cards">🃏 Cards & Quests</button>
-        <button class="subtab-btn ${this.bonusSub === 'pass' ? 'active' : ''}" data-bsub="pass">🏆 Season Pass & Ranks</button>
+        <button class="subtab-btn ${this.bonusSub === 'pass' ? 'active' : ''}" data-bsub="pass">🏆 VIP & Ranks</button>
       </div>
       <div id="bonus-body" style="display:flex;flex-direction:column;gap:10px;"></div>
     `;
@@ -3743,7 +3907,8 @@ class FairCoinSlotsApp {
     });
 
     const body = panel.querySelector<HTMLElement>('#bonus-body')!;
-    if (this.bonusSub === 'wheel') this.renderWheelBody(body);
+    if (this.bonusSub === 'collection') this.renderMasterCollectionBody(body);
+    else if (this.bonusSub === 'wheel') this.renderWheelBody(body);
     else if (this.bonusSub === 'cards') this.renderCardsAndQuestsBody(body);
     else {
       this.renderPassAndTournamentBody(body);
@@ -3751,6 +3916,320 @@ class FairCoinSlotsApp {
         void this.refreshGlobalLeaderboard();
       }
     }
+  }
+
+  private renderMasterCollectionBody(body: HTMLElement): void {
+    // 1. Compute complete collection & duplicate metrics
+    const getItemCount = (id: string, priceCoins: number) =>
+      this.state.itemCounts[id] ?? (this.state.ownedShopItems.includes(id) || priceCoins === 0 ? 1 : 0);
+
+    const ownedUniqueItems = SHOP_ITEMS.filter((it) => getItemCount(it.id, it.priceCoins) > 0).length;
+    const totalItemCopies = SHOP_ITEMS.reduce((sum, it) => sum + getItemCount(it.id, it.priceCoins), 0);
+    const duplicateItemCopies = SHOP_ITEMS.reduce((sum, it) => sum + Math.max(0, getItemCount(it.id, it.priceCoins) - 1), 0);
+
+    const ownedUniqueCards = CARDS.filter((c) => (this.state.cards[c.id] ?? 0) > 0).length;
+    const totalCardCopies = CARDS.reduce((sum, c) => sum + (this.state.cards[c.id] ?? 0), 0);
+    const duplicateCardCopies = CARDS.reduce((sum, c) => sum + Math.max(0, (this.state.cards[c.id] ?? 0) - 1), 0);
+
+    const activeChIdx = this.state.puzzleChapterIdx % PUZZLE_CHAPTERS.length;
+    const completedChaptersCount = Math.min(PUZZLE_CHAPTERS.length, this.state.puzzleChapterIdx);
+    const currentChapterPieces = this.state.puzzlePieces.filter((v) => v > 0).length;
+    const totalPuzzleTiles = Math.min(
+      PUZZLE_CHAPTERS.length * 9,
+      completedChaptersCount * 9 + (completedChaptersCount < PUZZLE_CHAPTERS.length ? currentChapterPieces : 0)
+    );
+    const maxPuzzleTiles = PUZZLE_CHAPTERS.length * 9;
+
+    const totalUniqueOwned = ownedUniqueItems + ownedUniqueCards + totalPuzzleTiles + PET_CATALOG.length;
+    const totalUniquePossible = SHOP_ITEMS.length + CARDS.length + maxPuzzleTiles + PET_CATALOG.length;
+    const overallPct = Math.round((totalUniqueOwned / totalUniquePossible) * 100);
+
+    const showItems = this.collectionFilter === 'all' || this.collectionFilter === 'items';
+    const showCards = this.collectionFilter === 'all' || this.collectionFilter === 'cards';
+    const showPuzzles = this.collectionFilter === 'all' || this.collectionFilter === 'puzzles';
+
+    const itemsTilesHtml = showItems
+      ? SHOP_ITEMS.map((item) => {
+          const count = getItemCount(item.id, item.priceCoins);
+          const equipped = this.isItemEquipped(item.category, item.id);
+          const stateClass = count > 1 ? 'duplicate' : count === 1 ? 'owned' : 'missing';
+          const badgeClass = count > 1 ? 'dup' : count === 0 ? 'zero' : '';
+          const badgeText = count > 1 ? `🔥 ×${count}` : count === 1 ? '✓ ×1' : '🔒 0';
+          const priceText = item.priceCoins === 0 ? 'Starter' : `🪙 ${formatCoins(item.priceCoins)}`;
+          return `
+            <div class="collectible-square-tile ${stateClass}">
+              <span class="dup-count-badge ${badgeClass}">${badgeText}</span>
+              <div class="c-ico">${item.emoji}</div>
+              <div class="c-title">${item.name}</div>
+              <div class="c-meta">${item.category.toUpperCase()} • ${priceText}</div>
+              <div style="display:flex;gap:3px;width:100%;margin-top:2px;">
+                ${
+                  count > 0
+                    ? `<button class="action-btn ${equipped ? 'green' : 'secondary'}" data-vault-equip="${item.id}" style="flex:1;padding:3px 4px;font-size:9px;">${equipped ? '✓ On' : 'Equip'}</button>`
+                    : ''
+                }
+                ${
+                  item.priceCoins > 0
+                    ? `<button class="action-btn secondary" data-vault-buy="${item.id}" style="flex:1;padding:3px 4px;font-size:9px;">${count > 0 ? '+1 Copy' : 'Buy'}</button>`
+                    : ''
+                }
+              </div>
+            </div>
+          `;
+        }).join('')
+      : '';
+
+    const cardsTilesHtml = showCards
+      ? CARDS.map((card) => {
+          const count = this.state.cards[card.id] ?? 0;
+          const setDef = CARD_SETS.find((s) => s.id === card.setId);
+          const stateClass = count > 1 ? 'duplicate' : count === 1 ? 'owned' : 'missing';
+          const badgeClass = count > 1 ? 'dup' : count === 0 ? 'zero' : '';
+          const badgeText = count > 1 ? `🔥 ×${count}` : count === 1 ? '✓ ×1' : '🔒 0';
+          return `
+            <div class="collectible-square-tile ${stateClass}">
+              <span class="dup-count-badge ${badgeClass}">${badgeText}</span>
+              <div class="c-ico">${card.emoji}</div>
+              <div class="c-title">${card.name}</div>
+              <div class="c-meta">${setDef?.emoji ?? '🃏'} ${'★'.repeat(card.stars)}</div>
+            </div>
+          `;
+        }).join('')
+      : '';
+
+    const puzzlesAndPetsTilesHtml = showPuzzles
+      ? [
+          ...PET_CATALOG.map((pet) => {
+            const active = this.state.activePetId === pet.id;
+            return `
+              <div class="collectible-square-tile owned">
+                <span class="dup-count-badge">${active ? '★ Active' : '✓ Owned'}</span>
+                <div class="c-ico">${pet.emoji}</div>
+                <div class="c-title">${pet.name}</div>
+                <div class="c-meta">PET • ${pet.perkTitle}</div>
+              </div>
+            `;
+          }),
+          ...PUZZLE_CHAPTERS.flatMap((ch, chIdx) => {
+            return Array.from({ length: 9 }, (_, idx) => {
+              const tileCount =
+                chIdx < this.state.puzzleChapterIdx
+                  ? 1
+                  : chIdx === activeChIdx
+                    ? (this.state.puzzlePieces[idx] ?? 0)
+                    : 0;
+              const stateClass = tileCount > 1 ? 'duplicate' : tileCount === 1 ? 'owned' : 'missing';
+              const badgeClass = tileCount > 1 ? 'dup' : tileCount === 0 ? 'zero' : '';
+              const badgeText = tileCount > 1 ? `🔥 ×${tileCount}` : tileCount === 1 ? '✓ ×1' : '🔒 0';
+              return `
+                <div class="collectible-square-tile ${stateClass}">
+                  <span class="dup-count-badge ${badgeClass}">${badgeText}</span>
+                  <div class="c-ico">${ch.tiles[idx] ?? '🧩'}</div>
+                  <div class="c-title">${ch.title} #${idx + 1}</div>
+                  <div class="c-meta">PUZZLE TILE</div>
+                </div>
+              `;
+            });
+          }),
+        ].join('')
+      : '';
+
+    body.innerHTML = `
+      <div class="card vip-pass-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+          <h2>📦 Master Collection Vault (${totalUniqueOwned}/${totalUniquePossible})</h2>
+          <span class="vip-price-tag">${overallPct}% Complete • 🔥 ${duplicateItemCopies + duplicateCardCopies} Duplicates</span>
+        </div>
+        <div class="vip-progress-track">
+          <div class="vip-progress-fill" style="width:${overallPct}%;"></div>
+        </div>
+        <div class="collection-stats-grid">
+          <div class="collection-stat-box">
+            <strong>${ownedUniqueItems}/${SHOP_ITEMS.length}</strong>
+            <small>👕 Gear Items (${totalItemCopies}× • 🔥 ${duplicateItemCopies} Dups)</small>
+          </div>
+          <div class="collection-stat-box">
+            <strong>${ownedUniqueCards}/${CARDS.length}</strong>
+            <small>🃏 Album Cards (${totalCardCopies}× • 🔥 ${duplicateCardCopies} Dups)</small>
+          </div>
+          <div class="collection-stat-box">
+            <strong>${totalPuzzleTiles}/${maxPuzzleTiles}</strong>
+            <small>🧩 Puzzle Tiles (${completedChaptersCount}/${PUZZLE_CHAPTERS.length} Chapters)</small>
+          </div>
+          <div class="collection-stat-box">
+            <strong>World ${this.state.villageLevel}</strong>
+            <small>🦁 ${PET_CATALOG.length}/3 Pets • 🏙️ ${Math.max(0, this.state.villageLevel - 1)} Cities Cleared</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+          <h3>🎁 Mystery Item Chests & Duplicate Collector</h3>
+          <span class="shop-price-pill trillion">🔥 ${duplicateItemCopies} Duplicate Items Owned</span>
+        </div>
+        <p style="font-size:11px;">
+          Collect every Style & Gear item multiple times! Duplicate items stack (<b>×2, ×3, ×5...</b>) and award <b>+5 ⭐ Vault Stars</b>, or trade <b>3 Duplicate Items</b> for a guaranteed new item!
+        </p>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+          <button class="action-btn green" id="btn-open-item-chest" style="font-size:11px;padding:8px 6px;">
+            🎁 1× Item Chest<br/><small>🪙 2.5B Coins</small>
+          </button>
+          <button class="action-btn" id="btn-open-item-chest-5" style="font-size:11px;padding:8px 6px;">
+            🎁 5× Mega Chest<br/><small>🪙 10B Coins</small>
+          </button>
+          <button class="action-btn secondary" id="btn-trade-dup-items" ${duplicateItemCopies < 3 ? 'disabled' : ''} style="font-size:11px;padding:8px 6px;">
+            ♻️ Trade 3 Dups<br/><small>✨ New Item / +25B</small>
+          </button>
+        </div>
+      </div>
+
+      <div class="collection-filter-grid">
+        <button class="collection-filter-tile ${this.collectionFilter === 'all' ? 'active' : ''}" data-cfilter="all">
+          📦 Everything (${totalUniqueOwned}/${totalUniquePossible})
+        </button>
+        <button class="collection-filter-tile ${this.collectionFilter === 'items' ? 'active' : ''}" data-cfilter="items">
+          👕 Gear & Style (${ownedUniqueItems}/${SHOP_ITEMS.length} • +${duplicateItemCopies} Dups)
+        </button>
+        <button class="collection-filter-tile ${this.collectionFilter === 'cards' ? 'active' : ''}" data-cfilter="cards">
+          🃏 Album Cards (${ownedUniqueCards}/${CARDS.length} • +${duplicateCardCopies} Dups)
+        </button>
+        <button class="collection-filter-tile ${this.collectionFilter === 'puzzles' ? 'active' : ''}" data-cfilter="puzzles">
+          🧩 Puzzles & Pets (${totalPuzzleTiles + PET_CATALOG.length}/${maxPuzzleTiles + PET_CATALOG.length})
+        </button>
+      </div>
+
+      <div class="collection-square-grid">
+        ${itemsTilesHtml}
+        ${cardsTilesHtml}
+        ${puzzlesAndPetsTilesHtml}
+      </div>
+    `;
+
+    body.querySelectorAll<HTMLButtonElement>('[data-cfilter]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.collectionFilter = btn.dataset.cfilter as 'all' | 'items' | 'cards' | 'puzzles';
+        this.sfx.playTap();
+        this.renderMasterCollectionBody(body);
+      });
+    });
+
+    body.querySelector('#btn-open-item-chest')?.addEventListener('click', () => {
+      const cost = 2_500_000_000;
+      if (this.state.coins < cost) {
+        this.showToast(`You need 🪙 ${formatCoins(cost)} coins to open an Item Chest!`);
+        return;
+      }
+      this.state.coins -= cost;
+      const drop = grantCollectibleShopItem(this.state);
+      if (drop.isDuplicate) {
+        this.state.duplicateStars += 5;
+      }
+      saveGameState(this.state);
+      this.sfx.playNewCardChime(drop.isDuplicate ? 3 : 5, !drop.isDuplicate);
+      this.spawnConfettiBurst(22);
+      this.showToast(
+        drop.isDuplicate
+          ? `🔥 Duplicate ${drop.item.emoji} ${drop.item.name} collected! Now ×${drop.count} (+5 ⭐)`
+          : `✨ NEW ITEM UNLOCKED: ${drop.item.emoji} ${drop.item.name} (×1)!`
+      );
+      this.renderHud();
+      this.renderMasterCollectionBody(body);
+    });
+
+    body.querySelector('#btn-open-item-chest-5')?.addEventListener('click', () => {
+      const cost = 10_000_000_000;
+      if (this.state.coins < cost) {
+        this.showToast(`You need 🪙 ${formatCoins(cost)} coins for the 5× Mega Item Chest!`);
+        return;
+      }
+      this.state.coins -= cost;
+      const summary: string[] = [];
+      for (let i = 0; i < 5; i++) {
+        const drop = grantCollectibleShopItem(this.state);
+        if (drop.isDuplicate) {
+          this.state.duplicateStars += 5;
+        }
+        summary.push(`${drop.item.emoji}×${drop.count}`);
+      }
+      saveGameState(this.state);
+      this.sfx.playWorldComplete();
+      this.spawnConfettiBurst(34);
+      this.showToast(`🎁 5× Mega Chest: ${summary.join(' ')}!`);
+      this.renderHud();
+      this.renderMasterCollectionBody(body);
+    });
+
+    body.querySelector('#btn-trade-dup-items')?.addEventListener('click', () => {
+      if (duplicateItemCopies < 3) {
+        this.showToast('You need at least 3 duplicate item copies to trade!');
+        return;
+      }
+      let remainingToConsume = 3;
+      for (const it of SHOP_ITEMS) {
+        const c = getItemCount(it.id, it.priceCoins);
+        if (c > 1 && remainingToConsume > 0) {
+          const take = Math.min(c - 1, remainingToConsume);
+          this.state.itemCounts[it.id] = c - take;
+          remainingToConsume -= take;
+        }
+      }
+      const unowned = SHOP_ITEMS.filter((it) => getItemCount(it.id, it.priceCoins) === 0);
+      if (unowned.length > 0) {
+        const pick = unowned[Math.floor(Math.random() * unowned.length)];
+        const drop = grantCollectibleShopItem(this.state, pick.id);
+        this.showToast(`♻️ Traded 3 Duplicates → Unlocked NEW ${drop.item.emoji} ${drop.item.name}!`);
+      } else {
+        this.state.coins += 25_000_000_000;
+        this.state.totalWon += 25_000_000_000;
+        this.state.goldPacks += 1;
+        this.showToast('♻️ Traded 3 Duplicates → +25B Coins & +1 🥇 Gold Pack!');
+      }
+      saveGameState(this.state);
+      this.sfx.playWorldComplete();
+      this.spawnConfettiBurst(28);
+      this.renderHud();
+      this.renderMasterCollectionBody(body);
+    });
+
+    body.querySelectorAll<HTMLButtonElement>('[data-vault-equip]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const item = SHOP_ITEMS.find((it) => it.id === btn.dataset.vaultEquip);
+        if (!item) return;
+        this.equipItem(item.category, item.id);
+        saveGameState(this.state);
+        this.syncCharacterRenderers();
+        this.sfx.playTap();
+        this.showToast(`👕 Equipped ${item.emoji} ${item.name}!`);
+        this.renderMasterCollectionBody(body);
+      });
+    });
+
+    body.querySelectorAll<HTMLButtonElement>('[data-vault-buy]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const item = SHOP_ITEMS.find((it) => it.id === btn.dataset.vaultBuy);
+        if (!item || item.priceCoins <= 0) return;
+        if (this.state.coins < item.priceCoins) {
+          this.showToast(`You need 🪙 ${formatCoins(item.priceCoins)} coins for ${item.name}!`);
+          return;
+        }
+        this.state.coins -= item.priceCoins;
+        const drop = grantCollectibleShopItem(this.state, item.id);
+        if (drop.isDuplicate) {
+          this.state.duplicateStars += 5;
+        }
+        saveGameState(this.state);
+        this.sfx.playUpgradePitch(4);
+        this.spawnConfettiBurst(18);
+        this.showToast(
+          drop.isDuplicate
+            ? `🔥 Collected Duplicate ${item.emoji} ${item.name} (×${drop.count}) +5 ⭐!`
+            : `🛍️ Collected ${item.emoji} ${item.name} (×1)!`
+        );
+        this.renderHud();
+        this.renderMasterCollectionBody(body);
+      });
+    });
   }
 
   private renderWheelBody(body: HTMLElement): void {
@@ -3994,7 +4473,7 @@ class FairCoinSlotsApp {
 
       <div class="card vip-pass-card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
-          <h2>📚 Fox Card Album (${ownedUnique}/${CARDS.length})</h2>
+          <h2>📚 Royal Card Album (${ownedUnique}/${CARDS.length})</h2>
           <span class="vip-price-tag" style="background:${this.state.albumCompleted ? '#06d6a0' : '#ffd166'};color:#120826;">
             ${this.state.albumCompleted ? ALBUM_MASTER_REWARD.badge : `${CARD_SETS.length} Sets • 9 Cards Each`}
           </span>
@@ -4310,7 +4789,7 @@ class FairCoinSlotsApp {
     const foxMegaBtnLabel =
       foxMegaProcessing && activeSim
         ? `⏳ Processing Bundle (<span id="sim-offer-inline-timer">${this.formatMmSs(activeSim.until - Date.now())}</span>)...`
-        : '🦊 Buy Fox Mega Bundle — €9.99';
+        : '👑 Buy Royal Crown Mega Bundle — €9.99';
 
     body.innerHTML = `
       <div class="card vip-pass-card">
@@ -4329,7 +4808,7 @@ class FairCoinSlotsApp {
 
       <div class="card vip-pass-card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-          <h2>🦊 Crazy Fox Mega Bundle</h2>
+          <h2>👑 Royal Crown Mega Bundle</h2>
           <span class="vip-price-tag">€9.99</span>
         </div>
         <p>
@@ -4421,7 +4900,7 @@ class FairCoinSlotsApp {
     body.querySelector('#btn-buy-fox-mega')?.addEventListener('click', () => {
       this.handleSimOfferAction({
         offerId: 'fox_mega',
-        title: '🦊 Crazy Fox Mega Bundle',
+        title: '👑 Royal Crown Mega Bundle',
         priceLabel: '€9.99',
         rewardSummary: '+2B Coins, +10 Gashapon Tokens, +10 Pet Treats & +1 Joker Wild Card',
         durationMs: 240_000,
@@ -4896,7 +5375,7 @@ class FairCoinSlotsApp {
         <h2 style="margin:0;color:#ffd166;">ℹ️ Fair Coin Slots</h2>
         <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">
           <b>Fair Coin Slots — Social Casino & Arcade</b><br/>
-          <span style="color:#c7b8e8;">Spin themed slot machines, play arcade tables, collect 90 album cards across 10 sets, and climb 550+ Worlds with your Fox Club.</span>
+          <span style="color:#c7b8e8;">Spin themed slot machines, play arcade tables, collect 90 album cards across 10 sets, and climb 550+ Worlds with your Royal Club.</span>
         </p>
         <div style="background:rgba(255,255,255,0.06);border-radius:12px;padding:10px;font-size:12px;color:#c7b8e8;display:flex;flex-direction:column;gap:4px;">
           <div>Session: <b>${sessionMins}m</b> • Break tip every <b>${this.state.reminderMinutes}m</b></div>

@@ -1790,3 +1790,247 @@ body {
   font-weight: 800;
 }
 
+/* Compact 1-line Choice Bar replacing elongated horizontal strips in Slots & Arcade */
+.picker-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 11px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(61, 26, 118, 0.9), rgba(32, 13, 66, 0.94));
+  border: 1.5px solid rgba(255, 209, 102, 0.48);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+}
+
+.picker-current-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 900;
+  color: #fff;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.picker-open-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1.5px solid #ffd166;
+  background: linear-gradient(180deg, #ffbe0b, #fb8500);
+  color: #1a0933;
+  font-size: 11.5px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 3px 10px rgba(251, 133, 0, 0.4);
+}
+
+.picker-open-btn:active {
+  transform: scale(0.96);
+}
+
+/* Square Grid Modal Window ("venster met vierkantjes") for Slots & Arcade */
+.square-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+  width: 100%;
+  margin: 4px 0;
+}
+
+.square-picker-grid.cols-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.square-option-tile {
+  aspect-ratio: 1 / 1;
+  border-radius: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(155deg, rgba(59, 25, 110, 0.92), rgba(28, 11, 56, 0.96));
+  color: #fff;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  text-align: center;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+}
+
+.square-option-tile:active {
+  transform: scale(0.95);
+}
+
+.square-option-tile.active {
+  border-color: #ffd166;
+  background: linear-gradient(155deg, rgba(123, 44, 191, 0.95), rgba(67, 97, 238, 0.88));
+  box-shadow: 0 0 18px rgba(255, 209, 102, 0.45);
+}
+
+.square-option-tile.locked {
+  opacity: 0.56;
+  border-style: dashed;
+}
+
+.square-tile-ico {
+  font-size: 30px;
+  line-height: 1;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
+}
+
+.square-tile-title {
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.15;
+  color: #fff;
+}
+
+.square-tile-sub {
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.38);
+  color: #ffd166;
+  border: 1px solid rgba(255, 209, 102, 0.3);
+}
+
+.square-option-tile.active .square-tile-sub {
+  background: #06d6a0;
+  color: #071b16;
+  border-color: #fff;
+}
+
+/* Master Collection Vault ("Alles verzamelen & dubbele items") */
+.collection-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.collection-stat-box {
+  background: rgba(15, 7, 34, 0.72);
+  border: 1.5px solid rgba(255, 209, 102, 0.32);
+  border-radius: 12px;
+  padding: 7px 4px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.collection-stat-box strong {
+  font-size: 12px;
+  font-weight: 900;
+  color: #ffd166;
+}
+
+.collection-stat-box small {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #c7b8e8;
+}
+
+.collection-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.collection-filter-tile {
+  border-radius: 12px;
+  border: 1.5px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2d9f3;
+  padding: 7px 4px;
+  font-size: 10.5px;
+  font-weight: 900;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.collection-filter-tile.active {
+  background: linear-gradient(135deg, #ffd166, #ff9f1c);
+  color: #180930;
+  border-color: #fff3b0;
+  box-shadow: 0 3px 10px rgba(255, 159, 28, 0.35);
+}
+
+.collection-square-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.collectible-square-tile {
+  position: relative;
+  border-radius: 14px;
+  padding: 9px 6px 7px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3px;
+  text-align: center;
+  min-height: 112px;
+}
+
+.collectible-square-tile.owned {
+  background: linear-gradient(160deg, rgba(6, 214, 160, 0.14), rgba(59, 25, 110, 0.55));
+  border-color: rgba(6, 214, 160, 0.55);
+}
+
+.collectible-square-tile.duplicate {
+  background: linear-gradient(160deg, rgba(255, 209, 102, 0.22), rgba(123, 44, 191, 0.65));
+  border-color: #ffd166;
+  box-shadow: 0 0 12px rgba(255, 209, 102, 0.24);
+}
+
+.collectible-square-tile.missing {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.dup-count-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  padding: 1.5px 6px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 900;
+  background: rgba(15, 23, 42, 0.88);
+  color: #06d6a0;
+  border: 1px solid rgba(6, 214, 160, 0.55);
+}
+
+.dup-count-badge.multi {
+  background: linear-gradient(90deg, #ff5d8f, #ff9f1c);
+  color: #fff;
+  border-color: #fff3b0;
+  box-shadow: 0 2px 6px rgba(255, 93, 143, 0.45);
+}
+
+.dup-count-badge.locked {
+  color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.35);
+}
+

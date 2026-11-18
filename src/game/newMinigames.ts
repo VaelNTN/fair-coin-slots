@@ -642,11 +642,11 @@ export class GashaponCanvas {
     ctx.arc(w / 2, 74, 62, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Fox emblem crown on dome
+    // Royal crown emblem on dome
     ctx.font = '22px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🦊', w / 2, 16);
+    ctx.fillText('👑', w / 2, 16);
 
     // Rotary handle
     ctx.save();

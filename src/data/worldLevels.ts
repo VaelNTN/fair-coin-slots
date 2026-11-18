@@ -101,8 +101,8 @@ export const WORLD_BIOMES: VillageBiome[] = [
   },
   {
     id: 'meadow',
-    name: 'Sunny Fox Hollow',
-    emoji: '🦊',
+    name: 'Sunny Crown Hollow',
+    emoji: '🌻',
     skyTop: '#1d4ed8',
     skyBottom: '#60a5fa',
     groundColor: '#15803d',
@@ -111,7 +111,7 @@ export const WORLD_BIOMES: VillageBiome[] = [
     buildings: [
       { name: 'Acorn Bakery', emoji: '🏡' },
       { name: 'Clover Windmill', emoji: '🌬️' },
-      { name: 'Fox Fountain', emoji: '⛲' },
+      { name: 'Golden Fountain', emoji: '⛲' },
       { name: 'Coin Barn', emoji: '🏦' },
       { name: 'Golden Oak Spire', emoji: '🌳' },
     ],
@@ -458,19 +458,19 @@ export const WORLD_BIOMES: VillageBiome[] = [
   },
   {
     id: 'infinity',
-    name: 'Infinity Fox Galaxy',
+    name: 'Infinity Crown Galaxy',
     emoji: '🌌',
     skyTop: '#020014',
     skyBottom: '#4338ca',
     groundColor: '#1e1b4b',
     accent: '#f472b6',
-    scenery: ['🦊', '🌟', '🌌'],
+    scenery: ['👑', '🌟', '🌌'],
     buildings: [
       { name: 'Starlight Shrine', emoji: '🌟' },
-      { name: 'Fox Nebula Mint', emoji: '🦊' },
+      { name: 'Crown Nebula Mint', emoji: '👑' },
       { name: 'Quantum Vault', emoji: '💎' },
       { name: 'Celestial Crown', emoji: '👑' },
-      { name: 'Eternal Fox Nexus', emoji: '🌌' },
+      { name: 'Eternal Crown Nexus', emoji: '🌌' },
     ],
   },
 ];
@@ -556,7 +556,7 @@ const BIOME_EXTRA_BUILDINGS: Record<string, { name: string; emoji: string }[]> =
     { name: 'Berry Greenhouse', emoji: '🍓' },
     { name: 'Timber Sawmill', emoji: '🪵' },
     { name: 'Clocktower Hall', emoji: '🕰️' },
-    { name: 'Fox Grand Manor', emoji: '🏰' },
+    { name: 'Royal Grand Manor', emoji: '🏰' },
   ],
   harbor: [
     { name: 'Lobster Market', emoji: '🦞' },

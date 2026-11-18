@@ -18,7 +18,7 @@ export interface CardSet {
 }
 
 export const ALBUM_MASTER_REWARD = {
-  title: 'Grand Fox Collector',
+  title: 'Grand Royal Collector',
   badge: '👑 Album Grandmaster',
   coins: 25_000_000_000,
   freeSpins: 250,
@@ -30,7 +30,7 @@ export const CARD_SETS: CardSet[] = [
   { id: 'pirate', name: 'Pirate Bay', emoji: '🏴‍☠️', rewardCoins: 500_000_000, rewardSpins: 25, color: '#38bdf8' },
   { id: 'space', name: 'Space Station', emoji: '🚀', rewardCoins: 850_000_000, rewardSpins: 35, color: '#818cf8' },
   { id: 'cyber', name: 'Cyber City', emoji: '🤖', rewardCoins: 1_250_000_000, rewardSpins: 40, color: '#22d3ee' },
-  { id: 'meadow', name: 'Sunny Hollow', emoji: '🦊', rewardCoins: 1_800_000_000, rewardSpins: 50, color: '#4ade80' },
+  { id: 'meadow', name: 'Sunny Hollow', emoji: '🌻', rewardCoins: 1_800_000_000, rewardSpins: 50, color: '#4ade80' },
   { id: 'pharaoh', name: 'Pharaoh Sands', emoji: '🐪', rewardCoins: 2_600_000_000, rewardSpins: 60, color: '#fbbf24' },
   { id: 'candy', name: 'Candy Kingdom', emoji: '🍭', rewardCoins: 3_500_000_000, rewardSpins: 70, color: '#f472b6' },
   { id: 'viking', name: 'Viking Fjord', emoji: '⚔️', rewardCoins: 5_000_000_000, rewardSpins: 80, color: '#60a5fa' },
@@ -84,7 +84,7 @@ const RAW_SET_CARDS: Record<string, RawCardSpec[]> = {
     ['Baker Bear', '🐻', 'Rare', 3],
     ['Mayor Owl', '🦉', 'Epic', 4],
     ['Golden Tractor', '🚜', 'Epic', 4, true],
-    ['Lucky Fox King', '🦊', 'Legendary', 5, true],
+    ['Lucky Lion King', '🦁', 'Legendary', 5, true],
   ],
   pharaoh: [
     ['Clay Scarab', '🪲', 'Common', 1],
@@ -150,7 +150,7 @@ const RAW_SET_CARDS: Record<string, RawCardSpec[]> = {
     ['Royal Scepter', '🪄', 'Rare', 3],
     ['Infinite Vault', '🏦', 'Epic', 4],
     ['Mythic Diamond', '💎', 'Epic', 4, true],
-    ['Grand Fox Crown', '👑', 'Legendary', 5, true],
+    ['Grand Royal Crown', '👑', 'Legendary', 5, true],
   ],
 };
 
