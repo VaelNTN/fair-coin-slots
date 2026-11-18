@@ -80,7 +80,7 @@ import {
   SpinResult,
   WinningLine,
 } from './game/slotEngine';
-import { drawVillagePanoramaCanvas } from './game/villageSceneRenderer';
+import { CITY_PLOT_COORDS, CityWorldController } from './game/villageSceneRenderer';
 import {
   addClubActivityPoints,
   DrawnCardResult,
@@ -117,6 +117,7 @@ class FairCoinSlotsApp {
   private sfx = new SoundFX();
   private hudCharacter: MascotRenderer | null = null;
   private previewCharacter: MascotRenderer | null = null;
+  private cityWorldCtrl: CityWorldController | null = null;
   private dozerCtrl: CoinDozerController | null = null;
   private plinkoCtrl: PlinkoController | null = null;
   private crashCtrl: CrashRocketCanvas | null = null;
@@ -125,7 +126,7 @@ class FairCoinSlotsApp {
 
   private activeTab: TabId = 'slots';
   private arcadeSub: ArcadeSubTab = 'crash';
-  private clubSub: ClubSubTab = 'club';
+  private clubSub: ClubSubTab = 'village';
   private characterSub: CharacterSubTab = 'studio';
   private bonusSub: BonusSubTab = 'wheel';
   private shopCategory: ShopCategory = 'outfit';
@@ -320,7 +321,7 @@ class FairCoinSlotsApp {
       <nav class="bottom-nav">
         <button class="nav-btn active" data-tab="slots"><span class="nav-ico">🎰</span><span>Slots</span></button>
         <button class="nav-btn" data-tab="arcade"><span class="nav-ico">🕹️</span><span>Arcade</span></button>
-        <button class="nav-btn" data-tab="club"><span class="nav-ico">🦊</span><span>Fox World</span></button>
+        <button class="nav-btn" data-tab="club"><span class="nav-ico">🏙️</span><span>CITY</span></button>
         <button class="nav-btn" data-tab="character"><span class="nav-ico">👕</span><span>Style</span></button>
         <button class="nav-btn" data-tab="bonuses"><span class="nav-ico">🎡</span><span>Rewards</span></button>
       </nav>
@@ -372,9 +373,19 @@ class FairCoinSlotsApp {
   private syncCharacterRenderers(): void {
     this.hudCharacter?.setConfig(this.state.character);
     this.previewCharacter?.setConfig(this.state.character);
+    const petEmoji = PET_CATALOG.find((p) => p.id === this.state.activePetId)?.emoji ?? '🦊';
+    this.cityWorldCtrl?.updateState(
+      this.state.villageLevel,
+      this.state.villageStars,
+      this.state.shields,
+      petEmoji,
+      this.state.character
+    );
   }
 
   private cleanupSubCanvas(): void {
+    this.cityWorldCtrl?.destroy();
+    this.cityWorldCtrl = null;
     this.dozerCtrl?.destroy();
     this.dozerCtrl = null;
     this.plinkoCtrl?.destroy();
@@ -704,7 +715,7 @@ class FairCoinSlotsApp {
       petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦊 Feed Pet'
     }</span></button>`;
 
-    const worldPillHtml = `<button class="world-pill" id="btn-hud-world">🏘️ W${this.state.villageLevel}/${TOTAL_WORLD_LEVELS}+ (${stars}/25★)</button>`;
+    const worldPillHtml = `<button class="world-pill" id="btn-hud-world">🏙️ W${this.state.villageLevel}/${TOTAL_WORLD_LEVELS}+ (${stars}/${STARS_PER_VILLAGE}★)</button>`;
 
     panel.innerHTML = `
       <div class="flash-event-banner" style="border-color:${flash.event.color};">
@@ -2399,6 +2410,18 @@ class FairCoinSlotsApp {
     this.bindProgressiveVillageEvents(body);
   }
 
+  private renderCompleteWorldBannerHtml(def: ReturnType<typeof getVillageDef>): string {
+    return `
+      <div style="background:rgba(6,214,160,0.16);border:1.5px solid #06d6a0;border-radius:12px;padding:10px;text-align:center;">
+        <div style="font-size:13px;font-weight:900;color:#06d6a0;">🎉 World ${def.level} City Complete (100/100★)!</div>
+        <div style="font-size:11px;color:#fff8f0;margin:4px 0 8px;">
+          Reward: <b>🪙 +${formatCoins(def.completionCoins)}</b>, <b>🎟️ +${def.completionSpins} Free Spins</b>, <b>🥉 +${def.completionChests}</b>, <b>🥈 +${def.completionSilverPacks}</b>${def.completionGoldPacks > 0 ? `, <b>🥇 +${def.completionGoldPacks}</b>` : ''}${def.completionJoker ? ' & <b>🃏 +1 Joker</b>' : ''}
+        </div>
+        <button class="action-btn green" id="btn-complete-world">🚀 Advance to World ${def.level + 1}!</button>
+      </div>
+    `;
+  }
+
   private renderProgressiveVillageCardHtml(): string {
     const def = getVillageDef(this.state.villageLevel);
     const stars = getVillageStarsCount(this.state.villageStars);
@@ -2420,162 +2443,249 @@ class FairCoinSlotsApp {
         </div>
         ${
           isDiscount
-            ? `<div class="flash-event-banner" style="border-color:#38bdf8;"><span>🔨 <b>BUILD RUSH 30% OFF</b> on all upgrades!</span><span id="flash-event-timer" style="color:#38bdf8;">${this.formatMmSs(flash.remainingMs)}</span></div>`
+            ? `<div class="flash-event-banner" style="border-color:#38bdf8;"><span>🔨 <b>BUILD RUSH 30% OFF</b> on all City upgrades!</span><span id="flash-event-timer" style="color:#38bdf8;">${this.formatMmSs(flash.remainingMs)}</span></div>`
             : ''
         }
         <div style="display:flex;justify-content:space-between;font-size:11px;color:#c7b8e8;font-weight:700;">
-          <span>Stars: <b style="color:#ffd166;">${stars}/${STARS_PER_VILLAGE} ★</b> • Win Mult: <b style="color:#06d6a0;">${mult}x</b></span>
-          <span>${upgradesLeft === 0 ? '<b style="color:#06d6a0;">🎉 Ready for Next World!</b>' : `<b style="color:#ffd166;">Only ${upgradesLeft} upgrade${upgradesLeft === 1 ? '' : 's'} to World ${def.level + 1}!</b>`}</span>
+          <span>City Level: <b style="color:#ffd166;" id="city-stars-val">${stars}/${STARS_PER_VILLAGE} ★</b> • Win Mult: <b style="color:#06d6a0;" id="city-win-mult-val">${mult}x</b></span>
+          <span id="city-upgrades-left">${upgradesLeft === 0 ? '<b style="color:#06d6a0;">🎉 Ready for Next World!</b>' : `<b style="color:#ffd166;">Only ${upgradesLeft} upgrade${upgradesLeft === 1 ? '' : 's'} to World ${def.level + 1}!</b>`}</span>
         </div>
         <div class="vip-progress-track">
-          <div class="vip-progress-fill" style="width:${pct}%;"></div>
+          <div class="vip-progress-fill" id="city-progress-fill" style="width:${pct}%;"></div>
         </div>
-        <canvas class="village-panorama" id="village-panorama-canvas" width="440" height="165"></canvas>
-        ${
-          allBuilt
-            ? `
-          <div style="background:rgba(6,214,160,0.16);border:1.5px solid #06d6a0;border-radius:12px;padding:10px;text-align:center;">
-            <div style="font-size:13px;font-weight:900;color:#06d6a0;">🎉 World ${def.level} Ready to Complete!</div>
-            <div style="font-size:11px;color:#fff8f0;margin:4px 0 8px;">
-              Reward: <b>🪙 +${formatCoins(def.completionCoins)}</b>, <b>🎟️ +${def.completionSpins} Free Spins</b>, <b>🥉 +${def.completionChests}</b>, <b>🥈 +${def.completionSilverPacks}</b>${def.completionGoldPacks > 0 ? `, <b>🥇 +${def.completionGoldPacks}</b>` : ''}${def.completionJoker ? ' & <b>🃏 +1 Joker</b>' : ''}
-            </div>
-            <button class="action-btn green" id="btn-complete-world">🚀 Advance to World ${def.level + 1}!</button>
-          </div>
-        `
-            : ''
-        }
-        ${def.buildings
-          .map((b, idx) => {
+        <div id="city-complete-slot">${allBuilt ? this.renderCompleteWorldBannerHtml(def) : ''}</div>
+        <div style="font-size:11px;color:#c7b8e8;text-align:center;">
+          👆 Tap any of the <b>10 buildings</b> in your City! Your character will run over &amp; hammer it up to <b>Lv.10</b> (<b>100★</b> per World).
+        </div>
+        <div class="city-world-stage">
+          <canvas class="village-panorama" id="village-panorama-canvas" width="460" height="520"></canvas>
+          ${CITY_PLOT_COORDS.map((coord, idx) => {
+            const b = def.buildings[idx];
+            if (!b) return '';
             const curStar = this.state.villageStars[idx] ?? 0;
             const isMax = curStar >= STARS_PER_BUILDING;
             const cost = getVillageBuildingUpgradeCost(def.level, idx, curStar, discountFactor);
             const canAfford = this.state.coins >= cost;
-            const pips = Array.from(
-              { length: STARS_PER_BUILDING },
-              (_, sIdx) => `<span class="star-pip ${sIdx < curStar ? 'filled' : 'empty'}">★</span>`
-            ).join('');
+            const lvPct = Math.round((curStar / STARS_PER_BUILDING) * 100);
             return `
-              <div class="building-row">
-                <div class="building-icon">${b.emoji}</div>
-                <div class="building-info">
-                  <strong>${b.name} (Lv.${curStar}/${STARS_PER_BUILDING})</strong>
-                  <div class="star-pip-row">${pips}</div>
-                </div>
-                <button class="action-btn ${canAfford && !isMax ? '' : 'secondary'}" data-world-build="${idx}" ${isMax || !canAfford ? 'disabled' : ''}>
-                  ${isMax ? '5★ MAX' : `${isDiscount ? '🏷️ ' : '🪙 '}${formatCoins(cost)}`}
-                </button>
-              </div>
+              <button
+                type="button"
+                class="city-plot-btn ${canAfford && !isMax ? 'affordable' : ''} ${isMax ? 'maxed' : ''}"
+                data-world-build="${idx}"
+                style="left:${(coord.xPct * 100).toFixed(1)}%;top:${(coord.yPct * 100).toFixed(1)}%;"
+                ${isMax ? 'disabled' : ''}
+              >
+                <span class="city-plot-name">${b.emoji} ${b.name}</span>
+                <div class="city-plot-bar"><div class="city-plot-bar-fill" style="width:${lvPct}%;"></div></div>
+                <span class="city-plot-cost">Lv.${curStar}/${STARS_PER_BUILDING} • ${isMax ? '👑 MAX LV.10' : `${isDiscount ? '🏷️ ' : '🔨 '}${formatCoins(cost)}`}</span>
+              </button>
             `;
-          })
-          .join('')}
+          }).join('')}
+        </div>
       </div>
     `;
   }
 
+  private completeCurrentWorld(): void {
+    const stars = getVillageStarsCount(this.state.villageStars);
+    if (stars < STARS_PER_VILLAGE) return;
+    const def = getVillageDef(this.state.villageLevel);
+
+    this.state.coins += def.completionCoins;
+    this.state.totalWon += def.completionCoins;
+    this.state.freeSpins += def.completionSpins;
+    this.state.wheelSpins += 10;
+    this.state.chests += def.completionChests;
+    this.state.silverPacks += def.completionSilverPacks;
+    this.state.goldPacks += def.completionGoldPacks;
+    this.state.gashaponTokens += def.completionTokens;
+    if (def.completionJoker) this.state.jokerCards += 1;
+
+    this.state.villageLevel += 1;
+    this.state.villageStars = Array(BUILDINGS_PER_VILLAGE).fill(0);
+    addClubActivityPoints(this.state, 120);
+    grantXp(this.state, 260);
+
+    // Push celebratory feed entry in Fox Club ("Achterban")
+    const myName = this.state.playerName.trim() || 'Player';
+    this.state.clubFeed = [
+      {
+        id: `clear-${Date.now()}`,
+        memberName: 'Bella Fox',
+        memberEmoji: '🦊',
+        kind: 'cheer' as const,
+        message: `Squad cheers! ${myName} conquered World ${def.level} (${def.title})!`,
+        fulfilled: false,
+      },
+      ...this.state.clubFeed,
+    ].slice(0, 8);
+
+    saveGameState(this.state);
+    this.sfx.playWorldComplete();
+    this.triggerScreenShake();
+    this.spawnCoinShower(32);
+    this.spawnCoinFountain(26);
+    this.spawnConfettiBurst(42);
+    const nextDef = getVillageDef(this.state.villageLevel);
+    this.showToast(`🏆 World ${def.level} cleared! Welcome to World ${nextDef.level}: ${nextDef.title}!`);
+    this.renderAll();
+    this.showWorldTransitionModal(def, nextDef);
+  }
+
+  private updateCityDomInPlace(container: HTMLElement): void {
+    const def = getVillageDef(this.state.villageLevel);
+    const stars = getVillageStarsCount(this.state.villageStars);
+    const upgradesLeft = Math.max(0, STARS_PER_VILLAGE - stars);
+    const mult = getTotalMultiplier(this.state);
+    const pct = Math.round((stars / STARS_PER_VILLAGE) * 100);
+    const isDiscount = this.getFlashEvent().event.id === 'build_discount';
+    const discountFactor = isDiscount ? 0.7 : 1;
+
+    const starsEl = container.querySelector<HTMLElement>('#city-stars-val');
+    if (starsEl) starsEl.textContent = `${stars}/${STARS_PER_VILLAGE} ★`;
+    const multEl = container.querySelector<HTMLElement>('#city-win-mult-val');
+    if (multEl) multEl.textContent = `${mult}x`;
+    const leftEl = container.querySelector<HTMLElement>('#city-upgrades-left');
+    if (leftEl) {
+      leftEl.innerHTML =
+        upgradesLeft === 0
+          ? '<b style="color:#06d6a0;">🎉 Ready for Next World!</b>'
+          : `<b style="color:#ffd166;">Only ${upgradesLeft} upgrade${upgradesLeft === 1 ? '' : 's'} to World ${def.level + 1}!</b>`;
+    }
+    const fillEl = container.querySelector<HTMLElement>('#city-progress-fill');
+    if (fillEl) fillEl.style.width = `${pct}%`;
+
+    const subtabBtn = this.root.querySelector<HTMLButtonElement>('[data-clubsub="village"]');
+    if (subtabBtn) {
+      subtabBtn.textContent = `🏙️ City Lv.${this.state.villageLevel} (${stars}/${STARS_PER_VILLAGE}★)`;
+    }
+
+    container.querySelectorAll<HTMLButtonElement>('[data-world-build]').forEach((btn) => {
+      const idx = Number(btn.dataset.worldBuild);
+      const b = def.buildings[idx];
+      if (!b) return;
+      const curStar = this.state.villageStars[idx] ?? 0;
+      const isMax = curStar >= STARS_PER_BUILDING;
+      const cost = getVillageBuildingUpgradeCost(def.level, idx, curStar, discountFactor);
+      const canAfford = this.state.coins >= cost;
+      const lvPct = Math.round((curStar / STARS_PER_BUILDING) * 100);
+
+      btn.disabled = isMax;
+      btn.classList.toggle('affordable', canAfford && !isMax);
+      btn.classList.toggle('maxed', isMax);
+
+      const nameEl = btn.querySelector<HTMLElement>('.city-plot-name');
+      if (nameEl) nameEl.innerHTML = `${b.emoji} ${b.name}`;
+      const barFill = btn.querySelector<HTMLElement>('.city-plot-bar-fill');
+      if (barFill) barFill.style.width = `${lvPct}%`;
+      const costEl = btn.querySelector<HTMLElement>('.city-plot-cost');
+      if (costEl) {
+        costEl.textContent = `Lv.${curStar}/${STARS_PER_BUILDING} • ${isMax ? '👑 MAX LV.10' : `${isDiscount ? '🏷️ ' : '🔨 '}${formatCoins(cost)}`}`;
+      }
+    });
+
+    const completeSlot = container.querySelector<HTMLElement>('#city-complete-slot');
+    if (completeSlot && stars >= STARS_PER_VILLAGE && !completeSlot.querySelector('#btn-complete-world')) {
+      completeSlot.innerHTML = this.renderCompleteWorldBannerHtml(def);
+      completeSlot.querySelector('#btn-complete-world')?.addEventListener('click', () => this.completeCurrentWorld());
+    }
+  }
+
   private bindProgressiveVillageEvents(container: HTMLElement): void {
+    const performUpgrade = (idx: number) => {
+      if (idx < 0 || idx >= BUILDINGS_PER_VILLAGE) return;
+      const def = getVillageDef(this.state.villageLevel);
+      const bName = def.buildings[idx]?.name ?? 'Building';
+      const curStar = this.state.villageStars[idx] ?? 0;
+      if (curStar >= STARS_PER_BUILDING) {
+        this.cityWorldCtrl?.triggerBuildAction(idx, curStar, bName, false);
+        return;
+      }
+      const discountFactor = this.getFlashEvent().event.id === 'build_discount' ? 0.7 : 1;
+      const cost = getVillageBuildingUpgradeCost(this.state.villageLevel, idx, curStar, discountFactor);
+      if (this.state.coins < cost) {
+        this.sfx.playReelStop(0);
+        this.cityWorldCtrl?.triggerBuildAction(idx, curStar, bName, false);
+        this.showToast(`Need 🪙 ${formatCoins(cost)} coins to upgrade ${bName}!`);
+        return;
+      }
+
+      this.state.coins -= cost;
+      const nextStars = [...this.state.villageStars];
+      const nextLevel = curStar + 1;
+      nextStars[idx] = nextLevel;
+      this.state.villageStars = nextStars;
+      this.state.totalStarsEarned += 1;
+      incrementQuest(this.state, 'upgrades', 1);
+      addClubActivityPoints(this.state, 28);
+
+      let maxOutMsg = '';
+      if (nextLevel === 5) {
+        this.state.chests += 1;
+        maxOutMsg = ' • +1 🥉 Bronze Card Pack!';
+      } else if (nextLevel >= STARS_PER_BUILDING) {
+        if (idx >= 5) {
+          this.state.silverPacks += 1;
+          maxOutMsg = ' • +1 🥈 Silver Card Pack!';
+        } else {
+          this.state.chests += 1;
+          maxOutMsg = ' • +1 🥉 Bronze Card Pack!';
+        }
+        this.triggerScreenShake();
+        this.spawnConfettiBurst(24);
+      }
+
+      const xpRes = grantXp(this.state, 85 + Math.floor(this.state.villageLevel / 5) * 12);
+      saveGameState(this.state);
+
+      // Rising pitch-shift sound with building level 1 -> 10
+      this.sfx.playUpgradePitch(nextLevel);
+      this.spawnCoinShower(10);
+      this.showToast(
+        xpRes.leveledUp
+          ? `🆙 Level ${xpRes.newLevel}! ${bName} → Lv.${nextLevel}/10${maxOutMsg}`
+          : `🔨 ${bName} → Lv.${nextLevel}/${STARS_PER_BUILDING}★${maxOutMsg || ' (+28 Club Pts)'}`
+      );
+      this.renderHud();
+
+      const petEmoji = PET_CATALOG.find((p) => p.id === this.state.activePetId)?.emoji ?? '🦊';
+      this.cityWorldCtrl?.updateState(
+        this.state.villageLevel,
+        this.state.villageStars,
+        this.state.shields,
+        petEmoji,
+        this.state.character
+      );
+      this.cityWorldCtrl?.triggerBuildAction(idx, nextLevel, bName, true);
+      this.updateCityDomInPlace(container);
+    };
+
     const canvas = container.querySelector<HTMLCanvasElement>('#village-panorama-canvas');
     if (canvas) {
+      this.cityWorldCtrl?.destroy();
       const petEmoji = PET_CATALOG.find((p) => p.id === this.state.activePetId)?.emoji ?? '🦊';
-      drawVillagePanoramaCanvas(canvas, this.state.villageLevel, this.state.villageStars, this.state.shields, petEmoji);
+      this.cityWorldCtrl = new CityWorldController(
+        canvas,
+        this.state.villageLevel,
+        this.state.villageStars,
+        this.state.shields,
+        petEmoji,
+        this.state.character,
+        (slotIdx) => performUpgrade(slotIdx)
+      );
     }
 
     container.querySelectorAll<HTMLButtonElement>('[data-world-build]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const idx = Number(btn.dataset.worldBuild);
-        if (idx < 0 || idx >= BUILDINGS_PER_VILLAGE) return;
-        const curStar = this.state.villageStars[idx] ?? 0;
-        if (curStar >= STARS_PER_BUILDING) return;
-        const discountFactor = this.getFlashEvent().event.id === 'build_discount' ? 0.7 : 1;
-        const cost = getVillageBuildingUpgradeCost(this.state.villageLevel, idx, curStar, discountFactor);
-        if (this.state.coins < cost) return;
-
-        this.state.coins -= cost;
-        const nextStars = [...this.state.villageStars];
-        const nextLevel = curStar + 1;
-        nextStars[idx] = nextLevel;
-        this.state.villageStars = nextStars;
-        this.state.totalStarsEarned += 1;
-        incrementQuest(this.state, 'upgrades', 1);
-        addClubActivityPoints(this.state, 28);
-
-        let maxOutMsg = '';
-        if (nextLevel >= STARS_PER_BUILDING) {
-          if (idx >= 3) {
-            this.state.silverPacks += 1;
-            maxOutMsg = ' • +1 🥈 Silver Card Pack!';
-          } else {
-            this.state.chests += 1;
-            maxOutMsg = ' • +1 🥉 Bronze Card Pack!';
-          }
-          this.triggerScreenShake();
-          this.spawnConfettiBurst(24);
-        }
-
-        const xpRes = grantXp(this.state, 115 + Math.floor(this.state.villageLevel / 5) * 15);
-        saveGameState(this.state);
-
-        // Rising pitch-shift sound with building level 1 -> 5
-        this.sfx.playUpgradePitch(nextLevel);
-        this.spawnCoinShower(12);
-        const def = getVillageDef(this.state.villageLevel);
-        const bName = def.buildings[idx]?.name ?? 'Building';
-        this.showToast(
-          xpRes.leveledUp
-            ? `🆙 Level ${xpRes.newLevel}! ${bName} → ${nextLevel}★${maxOutMsg}`
-            : `🔨 ${bName} → Lv.${nextLevel}/5★${maxOutMsg || ' (+28 Club Pts)'}`
-        );
-        this.renderAll();
+        performUpgrade(idx);
       });
     });
 
-    container.querySelector('#btn-complete-world')?.addEventListener('click', () => {
-      const stars = getVillageStarsCount(this.state.villageStars);
-      if (stars < STARS_PER_VILLAGE) return;
-      const def = getVillageDef(this.state.villageLevel);
-
-      this.state.coins += def.completionCoins;
-      this.state.totalWon += def.completionCoins;
-      this.state.freeSpins += def.completionSpins;
-      this.state.wheelSpins += 10;
-      this.state.chests += def.completionChests;
-      this.state.silverPacks += def.completionSilverPacks;
-      this.state.goldPacks += def.completionGoldPacks;
-      this.state.gashaponTokens += def.completionTokens;
-      if (def.completionJoker) this.state.jokerCards += 1;
-
-      this.state.villageLevel += 1;
-      this.state.villageStars = Array(BUILDINGS_PER_VILLAGE).fill(0);
-      addClubActivityPoints(this.state, 120);
-      grantXp(this.state, 260);
-
-      // Push celebratory feed entry in Fox Club ("Achterban")
-      const myName = this.state.playerName.trim() || 'Player';
-      this.state.clubFeed = [
-        {
-          id: `clear-${Date.now()}`,
-          memberName: 'Bella Fox',
-          memberEmoji: '🦊',
-          kind: 'cheer' as const,
-          message: `Squad cheers! ${myName} conquered World ${def.level} (${def.title})!`,
-          fulfilled: false,
-        },
-        ...this.state.clubFeed,
-      ].slice(0, 8);
-
-      saveGameState(this.state);
-      this.sfx.playWorldComplete();
-      this.triggerScreenShake();
-      this.spawnCoinShower(32);
-      this.spawnCoinFountain(26);
-      this.spawnConfettiBurst(42);
-      const nextDef = getVillageDef(this.state.villageLevel);
-      this.showToast(`🏆 World ${def.level} cleared! Welcome to World ${nextDef.level}: ${nextDef.title}!`);
-      this.renderAll();
-      this.showWorldTransitionModal(def, nextDef);
-    });
+    container.querySelector('#btn-complete-world')?.addEventListener('click', () => this.completeCurrentWorld());
   }
 
-  // ===================== 3. FOX WORLD TAB (Club "Achterban", Friends, 550+ Worlds & Map) =====================
+  // ===================== 3. CITY & WORLD TAB (Interactive City World, 550+ Map, Friends & Fox Club) =====================
   private renderClubAndWorldTab(): void {
     const panel = this.root.querySelector<HTMLElement>('#tab-club')!;
     const readyGifts = this.state.friends.filter((f) => f.giftReady).length;
@@ -2583,16 +2693,17 @@ class FairCoinSlotsApp {
 
     panel.innerHTML = `
       <div class="subtab-strip">
-        <button class="subtab-btn ${this.clubSub === 'club' ? 'active' : ''}" data-clubsub="club">🦊 Fox Club</button>
-        <button class="subtab-btn ${this.clubSub === 'friends' ? 'active' : ''}" data-clubsub="friends">👥 Friends${readyGifts > 0 ? ` (${readyGifts}🎁)` : ''}</button>
-        <button class="subtab-btn ${this.clubSub === 'village' ? 'active' : ''}" data-clubsub="village">🏘️ Village Lv.${this.state.villageLevel} (${stars}★)</button>
+        <button class="subtab-btn ${this.clubSub === 'village' ? 'active' : ''}" data-clubsub="village">🏙️ City Lv.${this.state.villageLevel} (${stars}/${STARS_PER_VILLAGE}★)</button>
         <button class="subtab-btn ${this.clubSub === 'map' ? 'active' : ''}" data-clubsub="map">🗺️ ${TOTAL_WORLD_LEVELS}+ Map</button>
+        <button class="subtab-btn ${this.clubSub === 'friends' ? 'active' : ''}" data-clubsub="friends">👥 Friends${readyGifts > 0 ? ` (${readyGifts}🎁)` : ''}</button>
+        <button class="subtab-btn ${this.clubSub === 'club' ? 'active' : ''}" data-clubsub="club">🦊 Fox Club</button>
       </div>
       <div id="club-body" style="display:flex;flex-direction:column;gap:10px;"></div>
     `;
 
     panel.querySelectorAll<HTMLButtonElement>('[data-clubsub]').forEach((b) => {
       b.addEventListener('click', () => {
+        this.cleanupSubCanvas();
         this.clubSub = b.dataset.clubsub as ClubSubTab;
         this.sfx.playTap();
         this.renderClubAndWorldTab();
@@ -3052,10 +3163,10 @@ class FairCoinSlotsApp {
           <span class="vip-price-tag" style="background:${curDiff.color};color:#120826;">World ${curLvl} / ${TOTAL_WORLD_LEVELS}+</span>
         </div>
         <p style="font-size:12px;">
-          Complete all <b>5 buildings (25★)</b> per village to unlock the next World. Every tier raises upgrade costs, Boss gates (every 10th level), and Rival Shield defenses!
+          Complete all <b>10 buildings (Lv.10 = ${STARS_PER_VILLAGE}★)</b> per City to unlock the next World. Every tier raises upgrade costs, Boss gates (every 10th level), and Rival Shield defenses!
         </p>
         <div style="display:flex;gap:8px;align-items:center;">
-          <button class="action-btn green" id="btn-jump-cur-world" style="flex:1;">🏘️ Build World ${curLvl} (${curStars}/25★)</button>
+          <button class="action-btn green" id="btn-jump-cur-world" style="flex:1;">🏙️ Build World ${curLvl} (${curStars}/${STARS_PER_VILLAGE}★)</button>
         </div>
       </div>
 
@@ -4832,7 +4943,7 @@ class FairCoinSlotsApp {
           <button class="action-btn green" id="dbg-wheel-50">+50 Wheel Spins</button>
           <button class="action-btn secondary" id="dbg-packs">+3 Each Card Pack</button>
           <button class="action-btn secondary" id="dbg-stars">+100⭐ & +2 Jokers</button>
-          <button class="action-btn" id="dbg-world-max">Max World (25★)</button>
+          <button class="action-btn" id="dbg-world-max">Max World (${STARS_PER_VILLAGE}★)</button>
           <button class="action-btn" id="dbg-world-10">+10 World Levels</button>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;background:rgba(255,255,255,0.06);padding:8px;border-radius:10px;">
@@ -4887,7 +4998,7 @@ class FairCoinSlotsApp {
       });
       box.querySelector('#dbg-world-max')?.addEventListener('click', () => {
         this.state.villageStars = Array(BUILDINGS_PER_VILLAGE).fill(STARS_PER_BUILDING);
-        commit(`🛠️ World ${this.state.villageLevel} maxed at 25/25★!`);
+        commit(`🛠️ World ${this.state.villageLevel} maxed at ${STARS_PER_VILLAGE}/${STARS_PER_VILLAGE}★!`);
       });
       box.querySelector('#dbg-world-10')?.addEventListener('click', () => {
         this.state.villageLevel = Math.min(TOTAL_WORLD_LEVELS, this.state.villageLevel + 10);

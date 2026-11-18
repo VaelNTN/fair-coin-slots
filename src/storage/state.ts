@@ -20,6 +20,7 @@ import {
   BUILDINGS_PER_VILLAGE,
   getVillageStarsCount,
   getWorldEconomyMultiplier,
+  STARS_PER_BUILDING,
 } from '../data/worldLevels';
 import { CharacterConfig } from '../game/mascotRenderer';
 import { JackpotKey } from '../game/slotEngine';
@@ -296,8 +297,13 @@ export function loadGameState(deviceId?: string): GameState {
         typeof parsed.villageLevel === 'number' && Number.isFinite(parsed.villageLevel) && parsed.villageLevel >= 1
           ? Math.floor(parsed.villageLevel)
           : 1,
-      villageStars: Array.isArray(parsed.villageStars) && parsed.villageStars.length === BUILDINGS_PER_VILLAGE
-        ? parsed.villageStars.map((s) => (typeof s === 'number' && Number.isFinite(s) ? Math.max(0, Math.min(5, Math.floor(s))) : 0))
+      villageStars: Array.isArray(parsed.villageStars)
+        ? Array.from({ length: BUILDINGS_PER_VILLAGE }, (_, i) => {
+            const v = parsed.villageStars?.[i];
+            return typeof v === 'number' && Number.isFinite(v)
+              ? Math.max(0, Math.min(STARS_PER_BUILDING, Math.floor(v)))
+              : 0;
+          })
         : [...initial.villageStars],
       totalStarsEarned:
         typeof parsed.totalStarsEarned === 'number' && Number.isFinite(parsed.totalStarsEarned)

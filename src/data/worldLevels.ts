@@ -1,7 +1,7 @@
 export const TOTAL_WORLD_LEVELS = 550;
-export const STARS_PER_BUILDING = 5;
-export const BUILDINGS_PER_VILLAGE = 5;
-export const STARS_PER_VILLAGE = STARS_PER_BUILDING * BUILDINGS_PER_VILLAGE; // 25 stars
+export const STARS_PER_BUILDING = 10;
+export const BUILDINGS_PER_VILLAGE = 10;
+export const STARS_PER_VILLAGE = STARS_PER_BUILDING * BUILDINGS_PER_VILLAGE; // 100 levels per world
 
 export interface VillageBiome {
   id: string;
@@ -529,6 +529,186 @@ export function getWorldCostMultiplier(level: number): number {
   return Math.pow(1.072, clamped - 1) * bossSurge;
 }
 
+const BIOME_EXTRA_BUILDINGS: Record<string, { name: string; emoji: string }[]> = {
+  pirate: [
+    { name: 'Shipyard Dock', emoji: '⚓' },
+    { name: 'Parrot Roost', emoji: '🦜' },
+    { name: 'Blacksmith Forge', emoji: '⚒️' },
+    { name: 'Lighthouse Keep', emoji: '🗼' },
+    { name: 'Admiral Fortress', emoji: '🏰' },
+  ],
+  nebula: [
+    { name: 'Hydro Dome', emoji: '🌱' },
+    { name: 'Zero-G Lab', emoji: '🔬' },
+    { name: 'Photon Array', emoji: '🛰️' },
+    { name: 'Starlight Mall', emoji: '🛸' },
+    { name: 'Nova Citadel', emoji: '🌟' },
+  ],
+  cyber: [
+    { name: 'Drone Hangar', emoji: '🛸' },
+    { name: 'Synth Noodle Bar', emoji: '🍜' },
+    { name: 'Android Foundry', emoji: '🦾' },
+    { name: 'Quantum Bank', emoji: '💠' },
+    { name: 'AI Overlord Tower', emoji: '🏙️' },
+  ],
+  meadow: [
+    { name: 'Honey Apiary', emoji: '🐝' },
+    { name: 'Berry Greenhouse', emoji: '🍓' },
+    { name: 'Timber Sawmill', emoji: '🪵' },
+    { name: 'Clocktower Hall', emoji: '🕰️' },
+    { name: 'Fox Grand Manor', emoji: '🏰' },
+  ],
+  harbor: [
+    { name: 'Lobster Market', emoji: '🦞' },
+    { name: 'Sailmaker Loft', emoji: '⛵' },
+    { name: 'Captain Tavern', emoji: '🍺' },
+    { name: 'Harbor Customs', emoji: '🏛️' },
+    { name: 'Royal Marina', emoji: '🚢' },
+  ],
+  pharaoh: [
+    { name: 'Papyrus Library', emoji: '📜' },
+    { name: 'Oasis Bathhouse', emoji: '🌴' },
+    { name: 'Chariot Arena', emoji: '🐎' },
+    { name: 'Anubis Shrine', emoji: '🐺' },
+    { name: 'Great Pyramid', emoji: '🔺' },
+  ],
+  candy: [
+    { name: 'Gummy Foundry', emoji: '🧸' },
+    { name: 'Waffle Bakery', emoji: '🧇' },
+    { name: 'Choco Waterfall', emoji: '🍫' },
+    { name: 'Cotton Cloud Mill', emoji: '☁️' },
+    { name: 'Sugar Palace', emoji: '🎂' },
+  ],
+  viking: [
+    { name: 'Mead Brewery', emoji: '🍺' },
+    { name: 'Runestone Altar', emoji: '🪨' },
+    { name: 'Wolf Kennel', emoji: '🐺' },
+    { name: 'Shield Barracks', emoji: '🛡️' },
+    { name: 'Odin Great Hall', emoji: '👑' },
+  ],
+  bamboo: [
+    { name: 'Bonsai Pavilion', emoji: '🪴' },
+    { name: 'Koi Bridge', emoji: '🎏' },
+    { name: 'Silk Weavery', emoji: '👘' },
+    { name: 'Jade Bell Tower', emoji: '🔔' },
+    { name: 'Emperor Pagoda', emoji: '🏯' },
+  ],
+  volcano: [
+    { name: 'Obsidian Quarry', emoji: '🪨' },
+    { name: 'Sulfur Springs', emoji: '♨️' },
+    { name: 'Salamander Pit', emoji: '🦎' },
+    { name: 'Titan Smeltery', emoji: '🔥' },
+    { name: 'Dragon Caldera', emoji: '🐉' },
+  ],
+  wizard: [
+    { name: 'Owl Rookery', emoji: '🦉' },
+    { name: 'Herb Conservatory', emoji: '🌿' },
+    { name: 'Rune Library', emoji: '📖' },
+    { name: 'Wand Workshop', emoji: '🪄' },
+    { name: 'Archmage Spire', emoji: '🔮' },
+  ],
+  crystal: [
+    { name: 'Prism Cutter', emoji: '💎' },
+    { name: 'Echo Grotto', emoji: '🔮' },
+    { name: 'Quartz Tramway', emoji: '🚋' },
+    { name: 'Sapphire Vault', emoji: '💠' },
+    { name: 'Diamond Cathedral', emoji: '👑' },
+  ],
+  dino: [
+    { name: 'Amber Mine', emoji: '🍯' },
+    { name: 'Fern Hatchery', emoji: '🥚' },
+    { name: 'Raptor Outpost', emoji: '🦖' },
+    { name: 'Tar Pit Forge', emoji: '🌋' },
+    { name: 'T-Rex Citadel', emoji: '🦕' },
+  ],
+  wildwest: [
+    { name: 'Livery Stable', emoji: '🐎' },
+    { name: 'Telegraph Office', emoji: '📠' },
+    { name: 'Gold Assay Bank', emoji: '🏦' },
+    { name: 'Steam Depot', emoji: '🚂' },
+    { name: 'Governor Mansion', emoji: '🏛️' },
+  ],
+  steampunk: [
+    { name: 'Copper Boiler', emoji: '♨️' },
+    { name: 'Clockmaker Guild', emoji: '⌚' },
+    { name: 'Steam Tram Station', emoji: '🚃' },
+    { name: 'Aether Dynamo', emoji: '⚡' },
+    { name: 'Brass Dreadnought', emoji: '🛳️' },
+  ],
+  atlantis: [
+    { name: 'Kelp Conservatory', emoji: '🌿' },
+    { name: 'Dolphin Harbor', emoji: '🐬' },
+    { name: 'Sunken Treasury', emoji: '🪙' },
+    { name: 'Abyssal Observatory', emoji: '🔭' },
+    { name: 'Poseidon Palace', emoji: '🔱' },
+  ],
+  haunted: [
+    { name: 'Pumpkin Patch', emoji: '🎃' },
+    { name: 'Gargoyle Roost', emoji: '🦇' },
+    { name: 'Potion Crypt', emoji: '🧪' },
+    { name: 'Phantom Organ Hall', emoji: '🎹' },
+    { name: 'Vampire Castle', emoji: '🏰' },
+  ],
+  carnival: [
+    { name: 'Popcorn Wagon', emoji: '🍿' },
+    { name: 'Bumper Arena', emoji: '🚗' },
+    { name: 'Funhouse Mirror', emoji: '🤡' },
+    { name: 'Roller Coaster', emoji: '🎢' },
+    { name: 'Grand Big Top', emoji: '🎪' },
+  ],
+  glacier: [
+    { name: 'Igloo Outpost', emoji: '🛖' },
+    { name: 'Husky Sled Depot', emoji: '🐕' },
+    { name: 'Ice Sculpture Hall', emoji: '🧊' },
+    { name: 'Aurora Lighthouse', emoji: '🌌' },
+    { name: 'Frost King Fortress', emoji: '❄️' },
+  ],
+  jungle: [
+    { name: 'Rope Bridge Post', emoji: '🌉' },
+    { name: 'Toucan Aviary', emoji: '🦜' },
+    { name: 'Orchid Shrine', emoji: '🌺' },
+    { name: 'Emerald Waterfall', emoji: '💧' },
+    { name: 'Sun God Ziggurat', emoji: '🏛️' },
+  ],
+  camelot: [
+    { name: 'Blacksmith Armory', emoji: '⚔️' },
+    { name: 'Falconry Tower', emoji: '🦅' },
+    { name: 'Round Table Hall', emoji: '🛡️' },
+    { name: 'Cathedral Abbey', emoji: '⛪' },
+    { name: 'Excalibur Keep', emoji: '👑' },
+  ],
+  moon: [
+    { name: 'Oxygen Extractor', emoji: '🫧' },
+    { name: 'Lunar Buggy Garage', emoji: '🛞' },
+    { name: 'Helium-3 Refinery', emoji: '⚛️' },
+    { name: 'Orbital Elevator', emoji: '🚀' },
+    { name: 'Earthrise Citadel', emoji: '🌍' },
+  ],
+  dragon: [
+    { name: 'Wyvern Roost', emoji: '🦇' },
+    { name: 'Ruby Treasury', emoji: '♦️' },
+    { name: 'Flame Altar', emoji: '🔥' },
+    { name: 'Scale Armor Forge', emoji: '🛡️' },
+    { name: 'Emperor Dragon Throne', emoji: '🐉' },
+  ],
+  olympus: [
+    { name: 'Ambrosia Vineyard', emoji: '🍇' },
+    { name: 'Oracle Rotunda', emoji: '🔮' },
+    { name: 'Pegasus Stables', emoji: '🦄' },
+    { name: 'Apollo Sun Dial', emoji: '☀️' },
+    { name: 'Zeus Pantheon', emoji: '⚡' },
+  ],
+  infinity: [
+    { name: 'Starlight Mint', emoji: '🪙' },
+    { name: 'Diamond Obelisk', emoji: '💎' },
+    { name: 'Chrono Nexus', emoji: '⏳' },
+    { name: 'Celestial Treasury', emoji: '🏦' },
+    { name: 'Apex Crown Palace', emoji: '👑' },
+  ],
+};
+
+const BUILDING_WEIGHTS_10 = [1.0, 1.22, 1.48, 1.8, 2.2, 2.68, 3.25, 3.95, 4.8, 5.8];
+
 export function getVillageDef(villageLevel: number): VillageWorldDef {
   const lvl = Math.max(1, Math.floor(villageLevel));
   const biome = WORLD_BIOMES[(lvl - 1) % WORLD_BIOMES.length];
@@ -544,11 +724,14 @@ export function getVillageDef(villageLevel: number): VillageWorldDef {
 
   const title = lvl === 1 ? biome.name : `${prefix}${biome.name}${cycle > 0 ? ` MK-${cycle + 1}` : ''}`;
 
-  const buildings: VillageBuildingDef[] = biome.buildings.map((b, idx) => ({
+  const extras = BIOME_EXTRA_BUILDINGS[biome.id] ?? BIOME_EXTRA_BUILDINGS.pirate;
+  const all10 = [...biome.buildings, ...extras].slice(0, BUILDINGS_PER_VILLAGE);
+
+  const buildings: VillageBuildingDef[] = all10.map((b, idx) => ({
     slotIdx: idx,
     name: b.name,
     emoji: b.emoji,
-    baseWeight: [1.0, 1.35, 1.75, 2.25, 2.9][idx],
+    baseWeight: BUILDING_WEIGHTS_10[idx] ?? 1 + idx * 0.5,
   }));
 
   const milestoneBoost = lvl % 50 === 0 ? 3.5 : lvl % 25 === 0 ? 2.2 : isBossLevel ? 1.6 : 1;
@@ -562,20 +745,20 @@ export function getVillageDef(villageLevel: number): VillageWorldDef {
     difficultyColor: diff.color,
     difficultyFactor,
     raidShieldChance,
-    completionCoins: Math.round(280_000_000 * econMult * milestoneBoost),
-    completionSpins: 20 + (lvl % 5 === 0 ? 15 : 0) + (isBossLevel ? 25 : 0) + Math.min(35, Math.floor(lvl / 25) * 3),
-    completionChests: isBossLevel ? 4 : lvl % 5 === 0 ? 3 : 2,
-    completionSilverPacks: lvl % 2 === 0 || isBossLevel ? 2 : 1,
-    completionGoldPacks: isBossLevel ? 2 : lvl % 5 === 0 ? 1 : 0,
-    completionTokens: isBossLevel ? 4 : 1 + (lvl % 3 === 0 ? 1 : 0),
-    completionJoker: lvl % 25 === 0 || lvl === 10,
+    completionCoins: Math.round(45_000_000_000 * econMult * milestoneBoost),
+    completionSpins: 35 + (lvl % 5 === 0 ? 20 : 0) + (isBossLevel ? 35 : 0) + Math.min(50, Math.floor(lvl / 25) * 4),
+    completionChests: isBossLevel ? 5 : lvl % 5 === 0 ? 4 : 3,
+    completionSilverPacks: lvl % 2 === 0 || isBossLevel ? 3 : 2,
+    completionGoldPacks: isBossLevel ? 2 : lvl % 5 === 0 ? 1 : 1,
+    completionTokens: isBossLevel ? 5 : 2 + (lvl % 3 === 0 ? 1 : 0),
+    completionJoker: lvl % 10 === 0 || lvl % 25 === 0,
     buildings,
   };
 }
 
 /**
- * Computes coin cost for upgrading slotIdx (0..4) from currentStar (0..4) -> currentStar + 1.
- * Follows exponential scaling: baseCost * (1.42 ^ level) * worldCostMultiplier * discountFactor.
+ * Computes coin cost for upgrading slotIdx (0..9) from currentStar (0..9) -> currentStar + 1.
+ * Cheapest building starts at 500,000,000 (500M) and rises exponentially per building, level, and world.
  */
 export function getVillageBuildingUpgradeCost(
   villageLevel: number,
@@ -585,13 +768,13 @@ export function getVillageBuildingUpgradeCost(
 ): number {
   const def = getVillageDef(villageLevel);
   const weight = def.buildings[slotIdx]?.baseWeight ?? 1;
-  const starCurve = Math.pow(1.42, Math.max(0, currentStar));
+  const starCurve = Math.pow(1.28, Math.max(0, currentStar));
   const costMult = getWorldCostMultiplier(villageLevel);
-  return Math.round(14_000_000 * weight * starCurve * costMult * discountFactor);
+  return Math.round(500_000_000 * weight * starCurve * costMult * discountFactor);
 }
 
 /**
- * Total stars currently filled in the active village (0..25).
+ * Total building levels currently filled in the active City World (0..100).
  */
 export function getVillageStarsCount(villageStars: number[]): number {
   let sum = 0;
