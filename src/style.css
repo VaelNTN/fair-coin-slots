@@ -194,27 +194,31 @@ body {
   display: flex;
 }
 
-/* Sub-tabs strip */
+/* Sub-tabs strip (responsive wrapping grid/flex — never overflows horizontally) */
 .subtab-strip {
   display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-  scrollbar-width: none;
-}
-.subtab-strip::-webkit-scrollbar {
-  display: none;
+  flex-wrap: wrap;
+  gap: 5px;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
 }
 
 .subtab-btn {
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1.5px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.07);
   color: var(--text-muted);
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12px;
+  border-radius: 10px;
+  padding: 6px 8px;
+  font-size: 11px;
   font-weight: 800;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -988,15 +992,19 @@ body {
 }
 
 .modal-box {
+  box-sizing: border-box;
   width: 100%;
-  max-width: 420px;
+  max-width: min(395px, calc(100vw - 24px));
+  max-height: 88vh;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: linear-gradient(165deg, #2b1254, #170930);
   border: 2.5px solid var(--gold);
   border-radius: 22px;
-  padding: 16px;
+  padding: 13px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   text-align: center;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7);
 }
@@ -1535,8 +1543,8 @@ body {
   pointer-events: auto;
   background: transparent;
   border: none;
-  padding: 52px 4px 0;
-  margin-top: -48px;
+  padding: 46px 4px 0;
+  margin-top: -42px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -1546,15 +1554,18 @@ body {
 .city-plot-mini-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
+  gap: 3px;
+  padding: 2px 6px;
   border-radius: 999px;
-  background: rgba(15, 10, 34, 0.84);
+  background: rgba(15, 10, 34, 0.88);
   border: 1.2px solid rgba(255, 255, 255, 0.28);
   color: #fff8f0;
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 800;
   white-space: nowrap;
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
   transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
 }
@@ -1562,6 +1573,17 @@ body {
 .city-plot-mini-pill b {
   color: #38bdf8;
   font-weight: 900;
+}
+
+.city-plot-node.town-hall .city-plot-mini-pill {
+  border-color: #ffd166;
+  background: linear-gradient(135deg, rgba(88, 28, 135, 0.94), rgba(30, 27, 75, 0.94));
+  box-shadow: 0 0 10px rgba(255, 209, 102, 0.45);
+  max-width: 126px;
+}
+
+.city-plot-node.town-hall .city-plot-mini-pill b {
+  color: #ffd166;
 }
 
 .city-plot-node.maxed .city-plot-mini-pill {
@@ -1578,6 +1600,46 @@ body {
   background: rgba(30, 18, 60, 0.96);
   transform: scale(1.04);
   box-shadow: 0 0 10px rgba(255, 209, 102, 0.45);
+}
+
+/* Central Interactive Fishing Pond ("Vijvertje") */
+.city-pond-node {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.city-pond-btn {
+  pointer-events: auto;
+  margin-top: 50px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(14, 116, 144, 0.94), rgba(15, 23, 42, 0.94));
+  border: 1.5px solid #38bdf8;
+  color: #e0f2fe;
+  font-size: 9.5px;
+  font-weight: 900;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(2, 132, 199, 0.5);
+  transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.city-pond-btn.active {
+  background: linear-gradient(135deg, #0284c7, #0d9488);
+  border-color: #ffd166;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.75);
+}
+
+.city-pond-btn:active {
+  transform: scale(0.94);
 }
 
 @keyframes cityBuildPopIn {
@@ -1685,8 +1747,10 @@ body {
 
 .club-chest-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .club-chest-item {
@@ -1698,6 +1762,8 @@ body {
   flex-direction: column;
   gap: 4px;
   text-align: center;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .club-chest-item.ready {
@@ -1730,8 +1796,10 @@ body {
 
 .pack-tier-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .pack-tier-card {
@@ -1744,6 +1812,8 @@ body {
   align-items: center;
   gap: 4px;
   text-align: center;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .pack-tier-card.ready {
@@ -1790,12 +1860,14 @@ body {
   font-weight: 800;
 }
 
-/* Compact 1-line Choice Bar replacing elongated horizontal strips in Slots & Arcade */
+/* Compact 1-line Choice Bar replacing elongated horizontal strips across all tabs */
 .picker-header-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
   padding: 7px 11px;
   border-radius: 14px;
   background: linear-gradient(135deg, rgba(61, 26, 118, 0.9), rgba(32, 13, 66, 0.94));
@@ -1806,8 +1878,8 @@ body {
 .picker-current-label {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 13px;
+  gap: 6px;
+  font-size: 12.5px;
   font-weight: 900;
   color: #fff;
   min-width: 0;
@@ -1819,16 +1891,17 @@ body {
 .picker-open-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 6px 12px;
+  gap: 4px;
+  padding: 6px 10px;
   border-radius: 10px;
   border: 1.5px solid #ffd166;
   background: linear-gradient(180deg, #ffbe0b, #fb8500);
   color: #1a0933;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 900;
   cursor: pointer;
   white-space: nowrap;
+  flex-shrink: 0;
   box-shadow: 0 3px 10px rgba(251, 133, 0, 0.4);
 }
 
@@ -1836,36 +1909,41 @@ body {
   transform: scale(0.96);
 }
 
-/* Square Grid Modal Window ("venster met vierkantjes") for Slots & Arcade */
+/* Square Grid Modal Window ("venster met vierkantjes") — fits 100% inside modal-box */
 .square-picker-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 9px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
   width: 100%;
-  margin: 4px 0;
+  box-sizing: border-box;
+  margin: 2px 0;
 }
 
 .square-picker-grid.cols-2 {
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .square-option-tile {
-  aspect-ratio: 1 / 1;
-  border-radius: 16px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 92px;
+  border-radius: 14px;
   border: 2px solid rgba(255, 255, 255, 0.18);
   background: linear-gradient(155deg, rgba(59, 25, 110, 0.92), rgba(28, 11, 56, 0.96));
   color: #fff;
-  padding: 8px 6px;
+  padding: 8px 4px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 4px;
   text-align: center;
   cursor: pointer;
   position: relative;
+  overflow: hidden;
   transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.35);
 }
 
 .square-option-tile:active {
@@ -1875,7 +1953,7 @@ body {
 .square-option-tile.active {
   border-color: #ffd166;
   background: linear-gradient(155deg, rgba(123, 44, 191, 0.95), rgba(67, 97, 238, 0.88));
-  box-shadow: 0 0 18px rgba(255, 209, 102, 0.45);
+  box-shadow: 0 0 14px rgba(255, 209, 102, 0.45);
 }
 
 .square-option-tile.locked {
@@ -1884,26 +1962,38 @@ body {
 }
 
 .square-tile-ico {
-  font-size: 30px;
+  font-size: 25px;
   line-height: 1;
-  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.45));
 }
 
 .square-tile-title {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 900;
   line-height: 1.15;
   color: #fff;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
 }
 
 .square-tile-sub {
-  font-size: 9.5px;
+  font-size: 8.5px;
   font-weight: 800;
-  padding: 2px 6px;
+  padding: 2px 5px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.38);
   color: #ffd166;
   border: 1px solid rgba(255, 209, 102, 0.3);
+  max-width: 100%;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .square-option-tile.active .square-tile-sub {
@@ -1915,20 +2005,24 @@ body {
 /* Master Collection Vault ("Alles verzamelen & dubbele items") */
 .collection-stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .collection-stat-box {
   background: rgba(15, 7, 34, 0.72);
   border: 1.5px solid rgba(255, 209, 102, 0.32);
   border-radius: 12px;
-  padding: 7px 4px;
+  padding: 7px 6px;
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .collection-stat-box strong {
@@ -1941,12 +2035,18 @@ body {
   font-size: 9.5px;
   font-weight: 800;
   color: #c7b8e8;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .collection-filter-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .collection-filter-tile {
@@ -1954,15 +2054,21 @@ body {
   border: 1.5px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.06);
   color: #e2d9f3;
-  padding: 7px 4px;
+  padding: 7px 6px;
   font-size: 10.5px;
   font-weight: 900;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 2px;
   text-align: center;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .collection-filter-tile.active {
@@ -1974,14 +2080,20 @@ body {
 
 .collection-square-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .collectible-square-tile {
   position: relative;
-  border-radius: 14px;
-  padding: 9px 6px 7px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 13px;
+  padding: 20px 5px 6px;
   background: rgba(255, 255, 255, 0.05);
   border: 1.5px solid rgba(255, 255, 255, 0.14);
   display: flex;
@@ -1990,7 +2102,34 @@ body {
   justify-content: space-between;
   gap: 3px;
   text-align: center;
-  min-height: 112px;
+  min-height: 102px;
+}
+
+.collectible-square-tile .c-ico {
+  font-size: 24px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+}
+
+.collectible-square-tile .c-title {
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.15;
+  color: #fff;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collectible-square-tile .c-meta {
+  font-size: 8.5px;
+  font-weight: 800;
+  color: #c7b8e8;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .collectible-square-tile.owned {
@@ -2011,25 +2150,31 @@ body {
 
 .dup-count-badge {
   position: absolute;
-  top: 5px;
-  right: 5px;
-  padding: 1.5px 6px;
+  top: 4px;
+  right: 4px;
+  padding: 1px 5px;
   border-radius: 999px;
-  font-size: 9.5px;
+  font-size: 8.5px;
   font-weight: 900;
-  background: rgba(15, 23, 42, 0.88);
+  background: rgba(15, 23, 42, 0.9);
   color: #06d6a0;
   border: 1px solid rgba(6, 214, 160, 0.55);
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.dup-count-badge.multi {
+.dup-count-badge.multi,
+.dup-count-badge.dup {
   background: linear-gradient(90deg, #ff5d8f, #ff9f1c);
   color: #fff;
   border-color: #fff3b0;
   box-shadow: 0 2px 6px rgba(255, 93, 143, 0.45);
 }
 
-.dup-count-badge.locked {
+.dup-count-badge.locked,
+.dup-count-badge.zero {
   color: #94a3b8;
   border-color: rgba(148, 163, 184, 0.35);
 }

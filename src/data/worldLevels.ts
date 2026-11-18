@@ -26,6 +26,8 @@ export interface VillageBuildingDef {
   name: string;
   emoji: string;
   baseWeight: number;
+  isTownHall: boolean;
+  archStyle: number;
 }
 
 export interface VillageWorldDef {
@@ -37,6 +39,7 @@ export interface VillageWorldDef {
   difficultyColor: string;
   difficultyFactor: number;
   raidShieldChance: number;
+  townHallSlotIdx: number;
   completionCoins: number;
   completionSpins: number;
   completionChests: number;
@@ -709,6 +712,20 @@ const BIOME_EXTRA_BUILDINGS: Record<string, { name: string; emoji: string }[]> =
 
 const BUILDING_WEIGHTS_10 = [1.0, 1.22, 1.48, 1.8, 2.2, 2.68, 3.25, 3.95, 4.8, 5.8];
 
+/**
+ * Non-repeating 10-slot circular sequence for the Grand Town Hall ("Gemeentehuis").
+ * Across 550 worlds (55 cycles of 10 positions), it moves to a different circle spot on every single world
+ * and is mathematically guaranteed NEVER to occupy the same circle spot on two consecutive worlds.
+ */
+const TOWN_HALL_CIRCLE_ORDER = [0, 3, 7, 1, 5, 8, 2, 6, 9, 4];
+
+export function getTownHallSlotIndex(villageLevel: number): number {
+  const lvl = Math.max(1, Math.floor(villageLevel));
+  const decade = Math.floor((lvl - 1) / 10);
+  const step = (lvl - 1) % 10;
+  return (TOWN_HALL_CIRCLE_ORDER[step] + decade * 3) % BUILDINGS_PER_VILLAGE;
+}
+
 export function getVillageDef(villageLevel: number): VillageWorldDef {
   const lvl = Math.max(1, Math.floor(villageLevel));
   const biome = WORLD_BIOMES[(lvl - 1) % WORLD_BIOMES.length];
@@ -726,13 +743,21 @@ export function getVillageDef(villageLevel: number): VillageWorldDef {
 
   const extras = BIOME_EXTRA_BUILDINGS[biome.id] ?? BIOME_EXTRA_BUILDINGS.pirate;
   const all10 = [...biome.buildings, ...extras].slice(0, BUILDINGS_PER_VILLAGE);
+  const townHallSlotIdx = getTownHallSlotIndex(lvl);
 
-  const buildings: VillageBuildingDef[] = all10.map((b, idx) => ({
-    slotIdx: idx,
-    name: b.name,
-    emoji: b.emoji,
-    baseWeight: BUILDING_WEIGHTS_10[idx] ?? 1 + idx * 0.5,
-  }));
+  let nonTownHallStyleCounter = 1;
+  const buildings: VillageBuildingDef[] = all10.map((b, idx) => {
+    const isTownHall = idx === townHallSlotIdx;
+    const archStyle = isTownHall ? 0 : nonTownHallStyleCounter++;
+    return {
+      slotIdx: idx,
+      name: isTownHall ? 'Town Hall' : b.name,
+      emoji: isTownHall ? '🏛️' : b.emoji,
+      baseWeight: BUILDING_WEIGHTS_10[idx] ?? 1 + idx * 0.5,
+      isTownHall,
+      archStyle,
+    };
+  });
 
   const milestoneBoost = lvl % 50 === 0 ? 3.5 : lvl % 25 === 0 ? 2.2 : isBossLevel ? 1.6 : 1;
 
@@ -745,6 +770,7 @@ export function getVillageDef(villageLevel: number): VillageWorldDef {
     difficultyColor: diff.color,
     difficultyFactor,
     raidShieldChance,
+    townHallSlotIdx,
     completionCoins: Math.round(45_000_000_000 * econMult * milestoneBoost),
     completionSpins: 35 + (lvl % 5 === 0 ? 20 : 0) + (isBossLevel ? 35 : 0) + Math.min(50, Math.floor(lvl / 25) * 4),
     completionChests: isBossLevel ? 5 : lvl % 5 === 0 ? 4 : 3,

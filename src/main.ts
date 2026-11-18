@@ -339,11 +339,18 @@ class FairCoinSlotsApp {
     this.root.querySelectorAll<HTMLButtonElement>('.nav-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const targetTab = btn.dataset.tab as TabId;
+        const wasAlreadyActive = this.activeTab === targetTab;
         this.switchTab(targetTab);
         if (targetTab === 'slots') {
           this.openSlotsSquarePickerModal();
         } else if (targetTab === 'arcade') {
           this.openArcadeSquarePickerModal();
+        } else if (targetTab === 'club' && wasAlreadyActive) {
+          this.openCitySquarePickerModal();
+        } else if (targetTab === 'character' && wasAlreadyActive) {
+          this.openStyleSquarePickerModal();
+        } else if (targetTab === 'bonuses' && wasAlreadyActive) {
+          this.openVaultSquarePickerModal();
         }
       });
     });
@@ -2565,6 +2572,11 @@ class FairCoinSlotsApp {
         <div id="city-complete-slot">${allBuilt ? this.renderCompleteWorldBannerHtml(def) : ''}</div>
         <div class="city-world-stage">
           <canvas class="village-panorama" id="village-panorama-canvas" width="440" height="640"></canvas>
+          <div class="city-pond-node">
+            <button type="button" class="city-pond-btn" id="city-pond-btn" title="Tap the pond to slowly fish coins!">
+              🎣 Fish Coins
+            </button>
+          </div>
           ${CITY_PLOT_COORDS.map((coord, idx) => {
             const b = def.buildings[idx];
             if (!b) return '';
@@ -2575,7 +2587,7 @@ class FairCoinSlotsApp {
             const canAfford = this.state.coins >= cost;
             return `
               <div
-                class="city-plot-node ${isSelected ? 'selected' : ''} ${isMax ? 'maxed' : ''}"
+                class="city-plot-node ${b.isTownHall ? 'town-hall' : ''} ${isSelected ? 'selected' : ''} ${isMax ? 'maxed' : ''}"
                 data-city-node="${idx}"
                 style="left:${(coord.xPct * 100).toFixed(1)}%;top:${(coord.yPct * 100).toFixed(1)}%;"
               >
@@ -2662,9 +2674,9 @@ class FairCoinSlotsApp {
     const fillEl = container.querySelector<HTMLElement>('#city-progress-fill');
     if (fillEl) fillEl.style.width = `${pct}%`;
 
-    const subtabBtn = this.root.querySelector<HTMLButtonElement>('[data-clubsub="village"]');
-    if (subtabBtn) {
-      subtabBtn.textContent = `🏙️ City Lv.${this.state.villageLevel} (${stars}/${STARS_PER_VILLAGE}★)`;
+    const cityCurLabel = this.root.querySelector<HTMLElement>('#city-picker-cur-text');
+    if (cityCurLabel && this.clubSub === 'village') {
+      cityCurLabel.textContent = `City Lv.${this.state.villageLevel} (${stars}/${STARS_PER_VILLAGE}★)`;
     }
 
     container.querySelectorAll<HTMLElement>('[data-city-node]').forEach((node) => {
@@ -2677,6 +2689,7 @@ class FairCoinSlotsApp {
       const cost = getVillageBuildingUpgradeCost(def.level, idx, curStar, discountFactor);
       const canAfford = this.state.coins >= cost;
 
+      node.classList.toggle('town-hall', Boolean(b.isTownHall));
       node.classList.toggle('selected', isSelected);
       node.classList.toggle('maxed', isMax);
 
@@ -2704,17 +2717,55 @@ class FairCoinSlotsApp {
   }
 
   private bindProgressiveVillageEvents(container: HTMLElement): void {
+    const pondBtn = container.querySelector<HTMLButtonElement>('#city-pond-btn');
+
     const selectPlot = (idx: number) => {
       if (idx < 0 || idx >= BUILDINGS_PER_VILLAGE) return;
       this.selectedCityPlotIdx = idx;
+      if (pondBtn) {
+        pondBtn.classList.remove('active');
+        pondBtn.textContent = '🎣 Fish Coins';
+      }
       this.sfx.playTap();
       this.cityWorldCtrl?.selectAndMoveToBuilding(idx);
       this.updateCityDomInPlace(container);
     };
 
+    const startPondFishing = () => {
+      this.selectedCityPlotIdx = null;
+      this.sfx.playTap();
+      this.cityWorldCtrl?.startOrNudgePondFishing();
+      if (pondBtn) {
+        pondBtn.classList.add('active');
+        pondBtn.textContent = '🎣 Fishing Coins...';
+      }
+      this.updateCityDomInPlace(container);
+    };
+
+    const handlePondCatchCoin = (): { coins: number; label: string } => {
+      const econ = getWorldEconomyMultiplier(this.state.villageLevel);
+      const reward = Math.round((8_000_000 + Math.floor(Math.random() * 14_000_000)) * econ);
+      const label = formatCoins(reward);
+      this.state.coins += reward;
+      this.state.totalWon += reward;
+      saveGameState(this.state);
+      this.sfx.playCoin();
+      this.renderHud();
+      if (pondBtn) {
+        pondBtn.classList.add('active');
+        pondBtn.textContent = `🎣 +🪙 ${label}!`;
+      }
+      this.updateCityDomInPlace(container);
+      return { coins: reward, label };
+    };
+
     const performUpgrade = (idx: number) => {
       if (idx < 0 || idx >= BUILDINGS_PER_VILLAGE) return;
       this.selectedCityPlotIdx = idx;
+      if (pondBtn) {
+        pondBtn.classList.remove('active');
+        pondBtn.textContent = '🎣 Fish Coins';
+      }
       const def = getVillageDef(this.state.villageLevel);
       const bName = def.buildings[idx]?.name ?? 'Building';
       const curStar = this.state.villageStars[idx] ?? 0;
@@ -2794,9 +2845,13 @@ class FairCoinSlotsApp {
         petEmoji,
         this.state.character,
         this.selectedCityPlotIdx,
-        (slotIdx) => selectPlot(slotIdx)
+        (slotIdx) => selectPlot(slotIdx),
+        () => startPondFishing(),
+        () => handlePondCatchCoin()
       );
     }
+
+    pondBtn?.addEventListener('click', () => startPondFishing());
 
     container.querySelectorAll<HTMLButtonElement>('[data-city-plot]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -2815,29 +2870,86 @@ class FairCoinSlotsApp {
     container.querySelector('#btn-complete-world')?.addEventListener('click', () => this.completeCurrentWorld());
   }
 
-  // ===================== 3. CITY & WORLD TAB (Interactive City World, 550+ Map, Friends & Royal Club) =====================
-  private renderClubAndWorldTab(): void {
-    const panel = this.root.querySelector<HTMLElement>('#tab-club')!;
+  // ===================== 3. CITY & WORLD TAB (Interactive Circular City, 550+ Map, Friends & Royal Club) =====================
+  private getCityOptionsList(): { id: ClubSubTab; ico: string; title: string; sub: string }[] {
     const readyGifts = this.state.friends.filter((f) => f.giftReady).length;
     const stars = getVillageStarsCount(this.state.villageStars);
+    return [
+      { id: 'village', ico: '🏙️', title: `City Lv.${this.state.villageLevel} (${stars}/${STARS_PER_VILLAGE}★)`, sub: 'Circular City + Pond' },
+      { id: 'map', ico: '🗺️', title: `${TOTAL_WORLD_LEVELS}+ World Map`, sub: `World ${this.state.villageLevel}/${TOTAL_WORLD_LEVELS}+` },
+      { id: 'friends', ico: '👥', title: 'Friends & Gifts', sub: readyGifts > 0 ? `${readyGifts} Gift${readyGifts === 1 ? '' : 's'} Ready!` : `${this.state.friends.length} Friends` },
+      { id: 'club', ico: '🛡️', title: 'Royal Club', sub: this.state.clubName },
+    ];
+  }
+
+  private openCitySquarePickerModal(): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    const options = this.getCityOptionsList();
+    box.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <h2 style="margin:0;color:#ffd166;font-size:17px;">🏙️ City & World Menu</h2>
+        <button class="icon-btn" id="btn-close-city-picker" aria-label="Close">✖</button>
+      </div>
+      <div class="square-picker-grid cols-2">
+        ${options
+          .map((opt) => {
+            const active = this.clubSub === opt.id;
+            return `
+              <button
+                type="button"
+                class="square-option-tile ${active ? 'active' : ''}"
+                data-pick-city="${opt.id}"
+              >
+                <span class="square-tile-ico">${opt.ico}</span>
+                <span class="square-tile-title">${opt.title}</span>
+                <span class="square-tile-sub">${active ? '✓ Active' : opt.sub}</span>
+              </button>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+
+    box.querySelector('#btn-close-city-picker')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      backdrop.classList.add('hidden');
+    });
+
+    box.querySelectorAll<HTMLButtonElement>('[data-pick-city]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const picked = btn.dataset.pickCity as ClubSubTab;
+        if (!picked) return;
+        this.cleanupSubCanvas();
+        this.clubSub = picked;
+        this.sfx.playTap();
+        backdrop.classList.add('hidden');
+        this.renderClubAndWorldTab();
+      });
+    });
+  }
+
+  private renderClubAndWorldTab(): void {
+    const panel = this.root.querySelector<HTMLElement>('#tab-club')!;
+    const options = this.getCityOptionsList();
+    const cur = options.find((o) => o.id === this.clubSub) ?? options[0];
 
     panel.innerHTML = `
-      <div class="subtab-strip">
-        <button class="subtab-btn ${this.clubSub === 'village' ? 'active' : ''}" data-clubsub="village">🏙️ City Lv.${this.state.villageLevel} (${stars}/${STARS_PER_VILLAGE}★)</button>
-        <button class="subtab-btn ${this.clubSub === 'map' ? 'active' : ''}" data-clubsub="map">🗺️ ${TOTAL_WORLD_LEVELS}+ Map</button>
-        <button class="subtab-btn ${this.clubSub === 'friends' ? 'active' : ''}" data-clubsub="friends">👥 Friends${readyGifts > 0 ? ` (${readyGifts}🎁)` : ''}</button>
-        <button class="subtab-btn ${this.clubSub === 'club' ? 'active' : ''}" data-clubsub="club">🛡️ Royal Club</button>
+      <div class="picker-header-bar" id="btn-open-city-picker" style="cursor:pointer;">
+        <div class="picker-current-label">
+          <span style="font-size:20px;">${cur.ico}</span>
+          <span id="city-picker-cur-text">${cur.title}</span>
+        </div>
+        <button type="button" class="picker-open-btn">⊞ City Menu (${options.length})</button>
       </div>
       <div id="club-body" style="display:flex;flex-direction:column;gap:10px;"></div>
     `;
 
-    panel.querySelectorAll<HTMLButtonElement>('[data-clubsub]').forEach((b) => {
-      b.addEventListener('click', () => {
-        this.cleanupSubCanvas();
-        this.clubSub = b.dataset.clubsub as ClubSubTab;
-        this.sfx.playTap();
-        this.renderClubAndWorldTab();
-      });
+    panel.querySelector('#btn-open-city-picker')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      this.openCitySquarePickerModal();
     });
 
     const body = panel.querySelector<HTMLElement>('#club-body')!;
@@ -3334,15 +3446,76 @@ class FairCoinSlotsApp {
   }
 
   // ===================== 3. CHARACTER, STYLE SHOP & LUCKY PETS TAB =====================
+  private getStyleOptionsList(): { id: CharacterSubTab; ico: string; title: string; sub: string }[] {
+    return [
+      { id: 'studio', ico: '👕', title: 'Mascot & Shop', sub: `${SHOP_ITEMS.length} Luxury Items` },
+      { id: 'collection', ico: '📦', title: 'All Collectibles', sub: 'Vault & Duplicates' },
+      { id: 'pets', ico: '🦁', title: 'Lucky Pets', sub: `${this.state.petTreats} 🍖 Treats` },
+    ];
+  }
+
+  private openStyleSquarePickerModal(): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    const options = this.getStyleOptionsList();
+    box.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <h2 style="margin:0;color:#ffd166;font-size:17px;">👕 Style & Pets Menu</h2>
+        <button class="icon-btn" id="btn-close-style-picker" aria-label="Close">✖</button>
+      </div>
+      <div class="square-picker-grid">
+        ${options
+          .map((opt) => {
+            const active = this.characterSub === opt.id;
+            return `
+              <button
+                type="button"
+                class="square-option-tile ${active ? 'active' : ''}"
+                data-pick-style="${opt.id}"
+              >
+                <span class="square-tile-ico">${opt.ico}</span>
+                <span class="square-tile-title">${opt.title}</span>
+                <span class="square-tile-sub">${active ? '✓ Active' : opt.sub}</span>
+              </button>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+
+    box.querySelector('#btn-close-style-picker')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      backdrop.classList.add('hidden');
+    });
+
+    box.querySelectorAll<HTMLButtonElement>('[data-pick-style]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const picked = btn.dataset.pickStyle as CharacterSubTab;
+        if (!picked) return;
+        this.cleanupSubCanvas();
+        this.characterSub = picked;
+        this.sfx.playTap();
+        backdrop.classList.add('hidden');
+        this.renderCharacterTab();
+      });
+    });
+  }
+
   private renderCharacterTab(): void {
     const panel = this.root.querySelector<HTMLElement>('#tab-character')!;
     const petBoost = getActivePetBoost(this.state);
+    const options = this.getStyleOptionsList();
+    const cur = options.find((o) => o.id === this.characterSub) ?? options[0];
 
     const subNavHtml = `
-      <div class="subtab-strip">
-        <button class="subtab-btn ${this.characterSub === 'studio' ? 'active' : ''}" data-csub="studio">👕 Mascot & Shop</button>
-        <button class="subtab-btn ${this.characterSub === 'collection' ? 'active' : ''}" data-csub="collection">📦 All Collectibles</button>
-        <button class="subtab-btn ${this.characterSub === 'pets' ? 'active' : ''}" data-csub="pets">🦁 Lucky Pets (${this.state.petTreats} 🍖)</button>
+      <div class="picker-header-bar" id="btn-open-style-picker" style="cursor:pointer;">
+        <div class="picker-current-label">
+          <span style="font-size:20px;">${cur.ico}</span>
+          <span>${cur.title}</span>
+        </div>
+        <button type="button" class="picker-open-btn">⊞ Style Menu (${options.length})</button>
       </div>
     `;
 
@@ -3351,13 +3524,9 @@ class FairCoinSlotsApp {
         ${subNavHtml}
         <div id="char-collection-body" style="display:flex;flex-direction:column;gap:10px;"></div>
       `;
-      panel.querySelectorAll<HTMLButtonElement>('[data-csub]').forEach((b) => {
-        b.addEventListener('click', () => {
-          this.cleanupSubCanvas();
-          this.characterSub = b.dataset.csub as CharacterSubTab;
-          this.sfx.playTap();
-          this.renderCharacterTab();
-        });
+      panel.querySelector('#btn-open-style-picker')?.addEventListener('click', () => {
+        this.sfx.playTap();
+        this.openStyleSquarePickerModal();
       });
       const colBody = panel.querySelector<HTMLElement>('#char-collection-body')!;
       this.renderMasterCollectionBody(colBody);
@@ -3403,12 +3572,9 @@ class FairCoinSlotsApp {
         </div>
       `;
 
-      panel.querySelectorAll<HTMLButtonElement>('[data-csub]').forEach((b) => {
-        b.addEventListener('click', () => {
-          this.characterSub = b.dataset.csub as CharacterSubTab;
-          this.sfx.playTap();
-          this.renderCharacterTab();
-        });
+      panel.querySelector('#btn-open-style-picker')?.addEventListener('click', () => {
+        this.sfx.playTap();
+        this.openStyleSquarePickerModal();
       });
 
       panel.querySelectorAll<HTMLButtonElement>('[data-pickpet]').forEach((b) => {
@@ -3509,13 +3675,9 @@ class FairCoinSlotsApp {
       </div>
     `;
 
-    panel.querySelectorAll<HTMLButtonElement>('[data-csub]').forEach((b) => {
-      b.addEventListener('click', () => {
-        this.cleanupSubCanvas();
-        this.characterSub = b.dataset.csub as CharacterSubTab;
-        this.sfx.playTap();
-        this.renderCharacterTab();
-      });
+    panel.querySelector('#btn-open-style-picker')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      this.openStyleSquarePickerModal();
     });
 
     const previewCanvas = panel.querySelector<HTMLCanvasElement>('#preview-char-canvas');
@@ -3886,24 +4048,83 @@ class FairCoinSlotsApp {
   }
 
   // ===================== 4. REWARDS & COLLECTION VAULT TAB =====================
+  private getVaultOptionsList(): { id: BonusSubTab; ico: string; title: string; sub: string }[] {
+    const totalPacks = this.state.chests + this.state.silverPacks + this.state.goldPacks;
+    return [
+      { id: 'collection', ico: '📦', title: 'All Collectibles', sub: 'Vault & Duplicates' },
+      { id: 'wheel', ico: '🎡', title: 'Wheel & Timers', sub: `${this.state.wheelSpins} Spins Ready` },
+      { id: 'cards', ico: '🃏', title: 'Cards & Quests', sub: totalPacks > 0 ? `${totalPacks} Packs Ready!` : '90 Cards (10 Sets)' },
+      { id: 'pass', ico: '🏆', title: 'VIP & Ranks', sub: 'Pass & Leaderboard' },
+    ];
+  }
+
+  private openVaultSquarePickerModal(): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    const options = this.getVaultOptionsList();
+    box.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <h2 style="margin:0;color:#ffd166;font-size:17px;">📦 Vault & Rewards Menu</h2>
+        <button class="icon-btn" id="btn-close-vault-picker" aria-label="Close">✖</button>
+      </div>
+      <div class="square-picker-grid cols-2">
+        ${options
+          .map((opt) => {
+            const active = this.bonusSub === opt.id;
+            return `
+              <button
+                type="button"
+                class="square-option-tile ${active ? 'active' : ''}"
+                data-pick-vault="${opt.id}"
+              >
+                <span class="square-tile-ico">${opt.ico}</span>
+                <span class="square-tile-title">${opt.title}</span>
+                <span class="square-tile-sub">${active ? '✓ Active' : opt.sub}</span>
+              </button>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+
+    box.querySelector('#btn-close-vault-picker')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      backdrop.classList.add('hidden');
+    });
+
+    box.querySelectorAll<HTMLButtonElement>('[data-pick-vault]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const picked = btn.dataset.pickVault as BonusSubTab;
+        if (!picked) return;
+        this.bonusSub = picked;
+        this.sfx.playTap();
+        backdrop.classList.add('hidden');
+        this.renderBonusesTab();
+      });
+    });
+  }
+
   private renderBonusesTab(): void {
     const panel = this.root.querySelector<HTMLElement>('#tab-bonuses')!;
+    const options = this.getVaultOptionsList();
+    const cur = options.find((o) => o.id === this.bonusSub) ?? options[0];
+
     panel.innerHTML = `
-      <div class="subtab-strip">
-        <button class="subtab-btn ${this.bonusSub === 'collection' ? 'active' : ''}" data-bsub="collection">📦 All Collectibles</button>
-        <button class="subtab-btn ${this.bonusSub === 'wheel' ? 'active' : ''}" data-bsub="wheel">🎡 Wheel & Timers</button>
-        <button class="subtab-btn ${this.bonusSub === 'cards' ? 'active' : ''}" data-bsub="cards">🃏 Cards & Quests</button>
-        <button class="subtab-btn ${this.bonusSub === 'pass' ? 'active' : ''}" data-bsub="pass">🏆 VIP & Ranks</button>
+      <div class="picker-header-bar" id="btn-open-vault-picker" style="cursor:pointer;">
+        <div class="picker-current-label">
+          <span style="font-size:20px;">${cur.ico}</span>
+          <span>${cur.title}</span>
+        </div>
+        <button type="button" class="picker-open-btn">⊞ Vault Menu (${options.length})</button>
       </div>
       <div id="bonus-body" style="display:flex;flex-direction:column;gap:10px;"></div>
     `;
 
-    panel.querySelectorAll<HTMLButtonElement>('[data-bsub]').forEach((b) => {
-      b.addEventListener('click', () => {
-        this.bonusSub = b.dataset.bsub as BonusSubTab;
-        this.sfx.playTap();
-        this.renderBonusesTab();
-      });
+    panel.querySelector('#btn-open-vault-picker')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      this.openVaultSquarePickerModal();
     });
 
     const body = panel.querySelector<HTMLElement>('#bonus-body')!;
