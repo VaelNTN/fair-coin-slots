@@ -605,7 +605,7 @@ export const VIKING_QUEST_STEPS: VikingStepDef[] = [
     costCoins: 0,
     fakePriceLabel: '€4.99',
     waitSeconds: 180,
-    rewardLabel: 'Unlock Key + 600M Coins + 3 Treats (€0.00 Charged!)',
+    rewardLabel: 'Unlock Key + 600M Coins + 3 Treats',
   },
   {
     step: 4,

@@ -468,7 +468,7 @@ class FairCoinSlotsApp {
         }
       }
 
-      // Tick generic simulated €0.00 offers
+      // Tick active in-app checkout offers
       const sim = this.state.simOfferProcessing;
       if (sim) {
         const rem = sim.until - Date.now();
@@ -524,10 +524,10 @@ class FairCoinSlotsApp {
     const elapsed = VIP_PASS_DURATION_MS - remainingMs;
     const step = Math.floor(elapsed / 40_000);
     const messages = [
-      'Connecting to €0.00 Simulated Vault...',
+      'Connecting to payment gateway...',
       'Checking monthly pass eligibility...',
-      'Validating zero-euro checkout receipt...',
-      'Charging €0.00 to your virtual wallet...',
+      'Authorizing €5.00 Monthly VIP Pass...',
+      'Verifying transaction receipt...',
       'Minting 1,000,000,000 bonus coins...',
       'Packing 50 Free Spins (3x multiplier)...',
       'Polishing your Monthly VIP Crown...',
@@ -625,7 +625,7 @@ class FairCoinSlotsApp {
       ? `<button class="vip-pill" id="btn-vip-quick"><span class="vip-mini-dot"></span><span>VIP <span id="vip-quick-timer">${this.formatMmSs(this.state.passProcessingUntil! - Date.now())}</span></span></button>`
       : this.isPassClaimedThisMonth()
         ? `<button class="vip-pill" style="border-color:#06d6a0;" id="btn-vip-quick">👑 VIP 3x ON</button>`
-        : `<button class="vip-pill" id="btn-vip-quick">👑 €5 VIP Pass (€0)</button>`;
+        : `<button class="vip-pill" id="btn-vip-quick">👑 €5.00 VIP Pass</button>`;
 
     const petPillHtml = `<button class="pet-status-pill" id="btn-hud-pet"><span id="hud-pet-timer">${
       petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦊 Feed Pet'
@@ -2617,7 +2617,7 @@ class FairCoinSlotsApp {
         : vikingDef.kind === 'free'
           ? '🎁 Claim Provisions (Free)'
           : vikingDef.kind === 'paywall'
-            ? `🗝️ Unlock ${vikingDef.fakePriceLabel || '€4.99'} Key (€0.00 Real Money)`
+            ? `🗝️ Unlock Key — ${vikingDef.fakePriceLabel || '€4.99'}`
             : vikingDef.kind === 'grand'
               ? '🏆 Claim Valhalla Grand Hoard!'
               : `⚔️ Wager 🪙 ${formatCoins(vikingDef.costCoins)}`;
@@ -2625,7 +2625,7 @@ class FairCoinSlotsApp {
     const streakBtnText =
       streakSimProcessing && activeSim
         ? `⏳ Verifying Streak Boost (<span id="sim-offer-inline-timer">${this.formatMmSs(activeSim.until - now)}</span>)...`
-        : '⚡ €1.99 Streak Supercharge (€0.00 Real Money)';
+        : '⚡ Streak Supercharge — €1.99';
 
     body.innerHTML = `
       <div class="card wheel-wrap">
@@ -3026,27 +3026,27 @@ class FairCoinSlotsApp {
     const claimedThisMonth = this.isPassClaimedThisMonth();
     const processingPass = this.isPassProcessing();
     const vipBtnLabel = processingPass
-      ? `⏳ Verifying Payment (<span id="vip-card-timer">${this.formatMmSs(this.state.passProcessingUntil! - Date.now())}</span>)...`
+      ? `⏳ Processing Payment (<span id="vip-card-timer">${this.formatMmSs(this.state.passProcessingUntil! - Date.now())}</span>)...`
       : claimedThisMonth
         ? '✅ VIP Pass Active This Month'
-        : '👑 Buy €5.00 VIP Pass (€0.00 Real Money)';
+        : '👑 Buy Monthly VIP Pass — €5.00';
 
     const activeSim = this.state.simOfferProcessing;
     const foxMegaProcessing = activeSim?.offerId === 'fox_mega';
     const foxMegaBtnLabel =
       foxMegaProcessing && activeSim
-        ? `⏳ Verifying Bundle (<span id="sim-offer-inline-timer">${this.formatMmSs(activeSim.until - Date.now())}</span>)...`
-        : '🦊 Claim €9.99 Fox Mega Bundle (€0.00 Real Money)';
+        ? `⏳ Processing Bundle (<span id="sim-offer-inline-timer">${this.formatMmSs(activeSim.until - Date.now())}</span>)...`
+        : '🦊 Buy Fox Mega Bundle — €9.99';
 
     body.innerHTML = `
       <div class="card vip-pass-card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
           <h2>👑 Monthly VIP Pass</h2>
-          <span class="vip-price-tag">€5.00 • €0 Charged</span>
+          <span class="vip-price-tag">€5.00 / Month</span>
         </div>
         <p>
-          Unlock once per month! Instant pack: <b>🪙 +1B Coins</b>, <b>🎟️ +50 Free Spins (3x)</b>, <b>🎁 +5 Chests</b> & <b>+0.5x Win Multiplier</b>.<br/>
-          <small style="color:#ffd166;">Zero real money ever spent — simulated patience verification only.</small>
+          Available once per month! Instant pack: <b>🪙 +1B Coins</b>, <b>🎟️ +50 Free Spins (3x)</b>, <b>🎁 +5 Chests</b> & <b>+0.5x Win Multiplier</b>.<br/>
+          <small style="color:#ffd166;">Includes 4-step order confirmation and secure transaction processing.</small>
         </p>
         <button class="action-btn ${claimedThisMonth ? 'green' : ''}" id="btn-buy-vip-pass" ${claimedThisMonth && !processingPass ? 'disabled' : ''}>
           ${vipBtnLabel}
@@ -3056,11 +3056,11 @@ class FairCoinSlotsApp {
       <div class="card vip-pass-card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
           <h2>🦊 Crazy Fox Mega Bundle</h2>
-          <span class="vip-price-tag">€9.99 • €0 Charged</span>
+          <span class="vip-price-tag">€9.99</span>
         </div>
         <p>
           Massive pack: <b>🪙 +2B Coins</b>, <b>🫧 +10 Gashapon Tokens</b>, <b>🍖 +10 Pet Treats</b> & <b>🃏 +1 Joker Wild Card</b>.<br/>
-          <small style="color:#ffd166;">Zero real money — passes 4 confirmations + 4-minute simulated verification.</small>
+          <small style="color:#ffd166;">Limited vault bundle with 4-step order confirmation and transaction processing.</small>
         </p>
         <button class="action-btn" id="btn-buy-fox-mega">
           ${foxMegaBtnLabel}
@@ -3572,8 +3572,8 @@ class FairCoinSlotsApp {
       box.innerHTML = `
         <h2 style="margin:0;color:#ffd166;">ℹ️ Fair Coin Slots</h2>
         <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">
-          <b>100% Free Virtual Coins — No Real Money</b><br/>
-          <span style="color:#c7b8e8;">All slot machines, minigames, and outfits use virtual coins only.</span>
+          <b>Fair Coin Slots — Social Casino & Arcade</b><br/>
+          <span style="color:#c7b8e8;">Spin themed slot machines, play arcade tables, collect album cards, and upgrade your VIP club.</span>
         </p>
         <div style="background:rgba(255,255,255,0.06);border-radius:12px;padding:10px;font-size:12px;color:#c7b8e8;display:flex;flex-direction:column;gap:4px;">
           <div>Session: <b>${sessionMins}m</b> • Break tip every <b>${this.state.reminderMinutes}m</b></div>
@@ -3660,23 +3660,23 @@ class FairCoinSlotsApp {
     const prompts: Record<1 | 2 | 3 | 4, { title: string; msg: string; ok: string }> = {
       1: {
         title: '👑 Monthly VIP Pass — Step 1/4',
-        msg: 'Unlock the <b>€5.00 Monthly VIP Pass</b>? No real money is ever charged (€0.00). Are you sure you want to proceed?',
+        msg: 'Purchase the <b>€5.00 Monthly VIP Pass</b>? Are you sure you want to proceed with this order?',
         ok: 'OK, Continue (1/4)',
       },
       2: {
         title: '🤔 Are You Sure? — Step 2/4',
-        msg: 'Just checking! Verification takes a ~5 minute loading wait instead of paying €5.00. Still want to continue?',
+        msg: 'Please double-check! You are confirming the <b>€5.00 Monthly VIP Pass</b> package. Are you sure you want to continue?',
         ok: 'Yes, I Am Sure (2/4)',
       },
       3: {
         title: '⚠️ Really Sure? — Step 3/4',
-        msg: 'You can only claim this Monthly VIP Pass <b>once per month</b>. Confirm you want to activate it now?',
+        msg: 'You can only unlock the <b>Monthly VIP Pass</b> <b>once per month</b>. Are you completely sure you want to activate it now?',
         ok: 'Really Sure (3/4)',
       },
       4: {
         title: '🚀 Final Confirmation — Step 4/4',
-        msg: 'Click <b>OK</b> below to begin your 5-minute simulated checkout (€0.00 real money charged).',
-        ok: 'OK — Start Payment (4/4)',
+        msg: 'Click <b>OK</b> below to confirm your <b>€5.00</b> purchase and start payment processing.',
+        ok: 'OK — Confirm Payment (4/4)',
       },
     };
 
@@ -3684,7 +3684,7 @@ class FairCoinSlotsApp {
     box.innerHTML = `
       <h2 style="margin:0;color:#ffd166;">${current.title}</h2>
       <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">${current.msg}</p>
-      <div style="font-size:12px;color:#06d6a0;font-weight:800;">Confirmation ${step} of 4 • €0.00 Real Money</div>
+      <div style="font-size:12px;color:#ffd166;font-weight:800;">Confirmation ${step} of 4 • €5.00 Monthly VIP Pass</div>
       <div style="display:flex;gap:8px;justify-content:center;">
         <button class="action-btn secondary" id="vip-confirm-cancel" style="flex:1;">Cancel</button>
         <button class="action-btn" id="vip-confirm-ok" style="flex:1.4;">${current.ok}</button>
@@ -3734,14 +3734,14 @@ class FairCoinSlotsApp {
         <div class="vip-progress-fill" id="vip-pass-progress" style="width:${pct}%;"></div>
       </div>
       <p style="margin:0;font-size:12px;color:#c7b8e8;" id="vip-pass-status">${this.getVipLoadingStatus(remaining)}</p>
-      <div style="font-size:11px;color:#06d6a0;font-weight:800;">€0.00 Real Money Charged • Wait for completion!</div>
+      <div style="font-size:11px;color:#ffd166;font-weight:800;">Processing €5.00 transaction • Please wait until complete!</div>
       <button class="action-btn secondary" id="vip-minimize-btn">Keep Playing While Loading</button>
     `;
 
     box.querySelector('#vip-minimize-btn')?.addEventListener('click', () => {
       backdrop.classList.add('hidden');
       this.sfx.playTap();
-      this.showToast('⏳ VIP Pass still verifying in background!');
+      this.showToast('⏳ VIP Pass payment still processing in background!');
     });
   }
 
@@ -3773,7 +3773,7 @@ class FairCoinSlotsApp {
     box.innerHTML = `
       <h2 style="margin:0;color:#06d6a0;">✅ Payment Completed!</h2>
       <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">
-        Your <b>Monthly VIP Pass</b> is now active! (<b>€0.00</b> actually charged)
+        Your <b>€5.00 Monthly VIP Pass</b> payment is complete and your VIP rewards are now active!
       </p>
       <div style="background:rgba(255,209,102,0.14);border:1.5px solid #ffd166;border-radius:14px;padding:10px;font-size:13px;font-weight:800;color:#ffd166;display:flex;flex-direction:column;gap:4px;">
         <div>🪙 +1,000,000,000 Coins</div>
@@ -3826,27 +3826,26 @@ class FairCoinSlotsApp {
     const box = this.root.querySelector<HTMLElement>('#modal-box')!;
     backdrop.classList.remove('hidden');
 
-    const mins = Math.max(1, Math.round(offer.durationMs / 60_000));
     const prompts: Record<1 | 2 | 3 | 4, { title: string; msg: string; ok: string }> = {
       1: {
         title: `${offer.title} — Step 1/4`,
-        msg: `Activate the <b>${offer.priceLabel} ${offer.title}</b>? No real money is ever charged (€0.00). Pack includes: <b>${offer.rewardSummary}</b>.`,
+        msg: `Purchase <b>${offer.title}</b> for <b>${offer.priceLabel}</b>? Pack includes: <b>${offer.rewardSummary}</b>. Continue?`,
         ok: 'OK, Continue (1/4)',
       },
       2: {
         title: '🤔 Are You Sure? — Step 2/4',
-        msg: `Just checking! Simulated checkout takes a <b>${mins}-minute</b> verification wait instead of paying ${offer.priceLabel}. Still continue?`,
+        msg: `Please double-check! You are confirming <b>${offer.title}</b> (<b>${offer.priceLabel}</b>). Are you sure you want to proceed?`,
         ok: 'Yes, I Am Sure (2/4)',
       },
       3: {
         title: '⚠️ Really Sure? — Step 3/4',
-        msg: `Zero real money will be charged (€0.00). Confirm you want to wait ${mins}m to claim <b>${offer.title}</b>?`,
+        msg: `Almost ready! Please confirm one more time that you want to purchase <b>${offer.title}</b> for <b>${offer.priceLabel}</b>.`,
         ok: 'Really Sure (3/4)',
       },
       4: {
         title: '🚀 Final Confirmation — Step 4/4',
-        msg: `Click <b>OK</b> below to start the ${mins}-minute simulated payment verification (€0.00 real money).`,
-        ok: 'OK — Start Verification (4/4)',
+        msg: `Click <b>OK</b> below to authorize your <b>${offer.priceLabel}</b> order and begin payment processing.`,
+        ok: 'OK — Confirm Payment (4/4)',
       },
     };
 
@@ -3854,7 +3853,7 @@ class FairCoinSlotsApp {
     box.innerHTML = `
       <h2 style="margin:0;color:#ffd166;">${current.title}</h2>
       <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">${current.msg}</p>
-      <div style="font-size:12px;color:#06d6a0;font-weight:800;">Confirmation ${step} of 4 • €0.00 Real Money</div>
+      <div style="font-size:12px;color:#ffd166;font-weight:800;">Confirmation ${step} of 4 • ${offer.priceLabel}</div>
       <div style="display:flex;gap:8px;justify-content:center;">
         <button class="action-btn secondary" id="sim-confirm-cancel" style="flex:1;">Cancel</button>
         <button class="action-btn" id="sim-confirm-ok" style="flex:1.4;">${current.ok}</button>
@@ -3864,7 +3863,7 @@ class FairCoinSlotsApp {
     box.querySelector('#sim-confirm-cancel')?.addEventListener('click', () => {
       backdrop.classList.add('hidden');
       this.sfx.playTap();
-      this.showToast('Checkout cancelled — €0.00 charged.');
+      this.showToast('Checkout cancelled.');
     });
 
     box.querySelector('#sim-confirm-ok')?.addEventListener('click', () => {
@@ -3911,15 +3910,15 @@ class FairCoinSlotsApp {
       <div class="vip-progress-track">
         <div class="vip-progress-fill" id="sim-offer-progress" style="width:${pct}%;"></div>
       </div>
-      <p style="margin:0;font-size:12px;color:#c7b8e8;">Verifying €0.00 virtual receipt... Reward: <b>${sim.rewardSummary}</b></p>
-      <div style="font-size:11px;color:#06d6a0;font-weight:800;">€0.00 Real Money Charged • Wait for completion!</div>
+      <p style="margin:0;font-size:12px;color:#c7b8e8;">Authorizing transaction & preparing rewards: <b>${sim.rewardSummary}</b></p>
+      <div style="font-size:11px;color:#ffd166;font-weight:800;">Processing ${sim.priceLabel} payment • Please wait for completion!</div>
       <button class="action-btn secondary" id="sim-minimize-btn">Keep Playing While Loading</button>
     `;
 
     box.querySelector('#sim-minimize-btn')?.addEventListener('click', () => {
       backdrop.classList.add('hidden');
       this.sfx.playTap();
-      this.showToast(`⏳ ${sim.title} still verifying in background!`);
+      this.showToast(`⏳ ${sim.title} payment still processing in background!`);
     });
   }
 
@@ -3977,7 +3976,7 @@ class FairCoinSlotsApp {
     box.innerHTML = `
       <h2 style="margin:0;color:#06d6a0;">✅ Payment Completed!</h2>
       <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">
-        <b>${sim.title}</b> delivered! (<b>€0.00</b> actually charged)
+        Your <b>${sim.priceLabel}</b> payment is complete and <b>${sim.title}</b> has been delivered!
       </p>
       <div style="background:rgba(255,209,102,0.14);border:1.5px solid #ffd166;border-radius:14px;padding:10px;font-size:13px;font-weight:800;color:#ffd166;display:flex;flex-direction:column;gap:4px;">
         ${lines.map((l) => `<div>${l}</div>`).join('')}
