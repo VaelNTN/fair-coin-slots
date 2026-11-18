@@ -76,7 +76,7 @@ export class CoinDozerController {
 
   dropCoin(dropXNormalized = 0.5): void {
     if (this.destroyed) return;
-    const cost = 0;
+    const cost = 1_000_000;
     if (!this.cb.onDropCost(cost)) return;
     this.cb.playCoin();
 
@@ -428,7 +428,7 @@ export class CoinDozerController {
   }
 }
 
-export const PLINKO_MULTIPLIERS = [15, 4, 1.8, 0.7, 0.5, 0.7, 1.8, 4, 15];
+export const PLINKO_MULTIPLIERS = [12, 3, 1.3, 0.5, 0.3, 0.5, 1.3, 3, 12];
 
 interface PlinkoPeg {
   x: number;
@@ -571,7 +571,9 @@ export class PlinkoController {
         if (b.trail.length > 7) b.trail.shift();
 
         b.vy = Math.min(7.5, b.vy + 0.25 * dtScale);
-        b.vx *= Math.pow(0.99, dtScale);
+        b.vx *= Math.pow(0.985, dtScale);
+        // Subtle inward drift toward center low-multiplier slots (house edge)
+        b.vx += (this.logicalWidth / 2 - b.x) * 0.0045 * dtScale;
         b.x += b.vx * dtScale;
         b.y = Math.max(8, b.y + b.vy * dtScale);
 
@@ -584,7 +586,8 @@ export class PlinkoController {
             const ny = d > 0.01 ? dy / d : -0.7;
             b.x = p.x + nx * 10.1;
             b.y = p.y + ny * 10.1;
-            b.vx = Math.max(-4.5, Math.min(4.5, nx * 2.15 + (Math.random() - 0.5) * 1.1));
+            const inwardBias = (this.logicalWidth / 2 - p.x) * 0.003;
+            b.vx = Math.max(-4.5, Math.min(4.5, nx * 2.05 + inwardBias + (Math.random() - 0.5) * 1.1));
             b.vy = Math.max(0.6, Math.min(5.5, Math.abs(ny * 2.2) + 0.55));
             p.flash = 1;
             p.flashColor = Math.random() > 0.45 ? '#38bdf8' : '#ffd166';

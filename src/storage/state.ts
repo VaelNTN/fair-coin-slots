@@ -42,6 +42,8 @@ export interface GameState {
   fairPassActive: boolean;
   monthlySpentEur: number;
   passActivatedAt: number | null;
+  passProcessingUntil: number | null;
+  lastPassMonthKey: string | null;
   sessionStartAt: number;
   reminderMinutes: number;
   soundEnabled: boolean;
@@ -56,6 +58,12 @@ export interface GameState {
   wheelSpins: number;
   wheelSpinsInitialized: boolean;
   slotsFreePlay: boolean;
+}
+
+export function getCurrentMonthKey(d = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
 }
 
 const STORAGE_KEY = 'fair_coin_slots_state_v2';
@@ -147,6 +155,8 @@ export function createInitialState(deviceId = generateFallbackDeviceId()): GameS
     fairPassActive: false,
     monthlySpentEur: 0,
     passActivatedAt: null,
+    passProcessingUntil: null,
+    lastPassMonthKey: null,
     sessionStartAt: Date.now(),
     reminderMinutes: 30,
     soundEnabled: true,
@@ -159,7 +169,7 @@ export function createInitialState(deviceId = generateFallbackDeviceId()): GameS
     claimedPassSteps: [],
     wheelSpins: 150,
     wheelSpinsInitialized: true,
-    slotsFreePlay: true,
+    slotsFreePlay: false,
   };
 }
 
@@ -186,6 +196,8 @@ export function loadGameState(deviceId?: string): GameState {
       character: { ...DEFAULT_CHARACTER, ...(parsed.character ?? {}) },
       ownedShopItems: Array.from(new Set([...initial.ownedShopItems, ...(parsed.ownedShopItems ?? [])])),
       sessionStartAt: Date.now(),
+      slotsFreePlay: false,
+      monthlySpentEur: 0,
     };
     if (!merged.starterBillionGranted) {
       merged.coins = Math.max(merged.coins, STARTER_COINS);
@@ -195,8 +207,9 @@ export function loadGameState(deviceId?: string): GameState {
       merged.wheelSpins = 150;
       merged.wheelSpinsInitialized = true;
     }
-    if (parsed.slotsFreePlay === undefined) {
-      merged.slotsFreePlay = true;
+    const currentMonth = getCurrentMonthKey();
+    if (merged.lastPassMonthKey && merged.lastPassMonthKey !== currentMonth) {
+      merged.fairPassActive = false;
     }
     return merged;
   } catch {

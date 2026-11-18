@@ -37,6 +37,7 @@ import {
 import {
   GameState,
   getBuildingUpgradeCost,
+  getCurrentMonthKey,
   getKingdomLevel,
   getTotalMultiplier,
   grantXp,
@@ -49,11 +50,15 @@ import {
 } from './storage/state';
 
 type TabId = 'slots' | 'arcade' | 'character' | 'bonuses';
-type ArcadeSubTab = 'dozer' | 'plinko' | 'scratch' | 'village';
+type ArcadeSubTab = 'dozer' | 'plinko' | 'highroller' | 'scratch' | 'village';
 type BonusSubTab = 'wheel' | 'cards' | 'pass';
 
 const HALF_HOUR_MS = 30 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const VIP_PASS_DURATION_MS = 5 * 60 * 1000;
+const SCRATCH_CARD_COST = 15_000_000;
+const RAID_COST = 20_000_000;
+const VAULT_MULTS = [1.35, 1.85, 2.6, 4.0, 6.5];
 
 class FairCoinSlotsApp {
   private root: HTMLElement;
@@ -87,6 +92,7 @@ class FairCoinSlotsApp {
   private isLuckWheelSpin = false;
   private toastTimer = 0;
   private sessionIntervalId: number | null = null;
+  private vipPassTickerId: number | null = null;
   private sessionAlertShown = false;
   private syncTimer: number | null = null;
   private globalEntries: GlobalSlotsEntry[] = [];
@@ -95,9 +101,16 @@ class FairCoinSlotsApp {
   private leaderboardTapCount = 0;
   private leaderboardTapTimer: number | null = null;
 
-  // Scratch card local board
+  // Arcade & Casino Minigames state
   private scratchBoard: { emoji: string; coins: number; spins: number; revealed: boolean }[] = [];
-  private plinkoBet = 10_000_000;
+  private plinkoBet = 25_000_000;
+  private highRollerBet = 100_000_000;
+  private diceBet = 50_000_000;
+  private vaultBet = 100_000_000;
+  private vaultActive = false;
+  private vaultStep = 0;
+  private vaultRevealed: ('hidden' | 'safe' | 'bomb')[] = Array(6).fill('hidden');
+  private vaultBombs = new Set<number>();
   private raidDoneBoard = false;
   private raidRevealed: boolean[] = [false, false, false, false];
   private raidValues: number[] = [];
@@ -116,6 +129,7 @@ class FairCoinSlotsApp {
     this.initHudCharacter();
     this.renderAll();
     this.startSessionTicker();
+    this.startVipPassTicker();
   }
 
   private scheduleGlobalSync(delayMs = 2500): void {
@@ -316,6 +330,79 @@ class FairCoinSlotsApp {
     this.sessionIntervalId = window.setInterval(updateTimer, 15_000);
   }
 
+  private startVipPassTicker(): void {
+    if (this.vipPassTickerId !== null) {
+      window.clearInterval(this.vipPassTickerId);
+    }
+    const tick = () => {
+      const until = this.state.passProcessingUntil;
+      if (!until) return;
+      const remaining = until - Date.now();
+      if (remaining <= 0) {
+        this.completeVipPassPurchase();
+        return;
+      }
+      const mmss = this.formatMmSs(remaining);
+      const pct = Math.min(100, Math.max(2, Math.round(((VIP_PASS_DURATION_MS - remaining) / VIP_PASS_DURATION_MS) * 100)));
+      const cdEl = this.root.querySelector<HTMLElement>('#vip-pass-countdown');
+      if (cdEl) cdEl.textContent = mmss;
+      const fillEl = this.root.querySelector<HTMLElement>('#vip-pass-progress');
+      if (fillEl) fillEl.style.width = `${pct}%`;
+      const msgEl = this.root.querySelector<HTMLElement>('#vip-pass-status');
+      if (msgEl) msgEl.textContent = this.getVipLoadingStatus(remaining);
+      const pillEl = this.root.querySelector<HTMLElement>('#vip-quick-timer');
+      if (pillEl) pillEl.textContent = mmss;
+      const cardTimerEl = this.root.querySelector<HTMLElement>('#vip-card-timer');
+      if (cardTimerEl) cardTimerEl.textContent = mmss;
+    };
+    tick();
+    this.vipPassTickerId = window.setInterval(tick, 1000);
+  }
+
+  private isPassClaimedThisMonth(): boolean {
+    return this.state.lastPassMonthKey === getCurrentMonthKey();
+  }
+
+  private isPassProcessing(): boolean {
+    return typeof this.state.passProcessingUntil === 'number' && this.state.passProcessingUntil > Date.now();
+  }
+
+  private formatMmSs(ms: number): string {
+    const totalSec = Math.max(0, Math.ceil(ms / 1000));
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
+  private getVipLoadingStatus(remainingMs: number): string {
+    const elapsed = VIP_PASS_DURATION_MS - remainingMs;
+    const step = Math.floor(elapsed / 40_000);
+    const messages = [
+      'Connecting to €0.00 Simulated Vault...',
+      'Checking monthly pass eligibility...',
+      'Validating zero-euro checkout receipt...',
+      'Charging €0.00 to your virtual wallet...',
+      'Minting 1,000,000,000 bonus coins...',
+      'Packing 50 Free Spins (3x multiplier)...',
+      'Polishing your Monthly VIP Crown...',
+      'Finalizing VIP Pass activation...',
+    ];
+    return messages[Math.min(messages.length - 1, Math.max(0, step))];
+  }
+
+  private handleVipPassAction(): void {
+    this.sfx.playTap();
+    if (this.isPassProcessing()) {
+      this.openVipLoadingModal();
+      return;
+    }
+    if (this.isPassClaimedThisMonth()) {
+      this.showToast('✅ VIP Pass already claimed this month! Back next month.');
+      return;
+    }
+    this.openVipConfirmModal(1);
+  }
+
   private renderAll(): void {
     this.renderHud();
     this.renderActiveTab();
@@ -337,7 +424,7 @@ class FairCoinSlotsApp {
     }
     if (multEl) multEl.textContent = `${getTotalMultiplier(this.state)}x`;
     if (rescueBtn) {
-      rescueBtn.style.display = this.state.coins < BET_STEPS[0] ? 'inline-block' : 'none';
+      rescueBtn.style.display = this.state.coins < 1_000_000 ? 'inline-block' : 'none';
     }
   }
 
@@ -377,6 +464,12 @@ class FairCoinSlotsApp {
     const machine = this.getActiveMachine();
     const bet = BET_STEPS[this.state.betIndex] ?? BET_STEPS[0];
 
+    const vipPillHtml = this.isPassProcessing()
+      ? `<button class="vip-pill" id="btn-vip-quick"><span class="vip-mini-dot"></span><span>VIP <span id="vip-quick-timer">${this.formatMmSs(this.state.passProcessingUntil! - Date.now())}</span></span></button>`
+      : this.isPassClaimedThisMonth()
+        ? `<button class="vip-pill" style="border-color:#06d6a0;" id="btn-vip-quick">👑 VIP 3x ON</button>`
+        : `<button class="vip-pill" id="btn-vip-quick">👑 €5 VIP Pass (€0)</button>`;
+
     panel.innerHTML = `
       <div class="machine-strip">
         ${SLOT_MACHINES.map((m) => {
@@ -409,7 +502,7 @@ class FairCoinSlotsApp {
         ${
           this.lastGambleAmount > 0 && !this.isSpinning
             ? `<button class="piggy-pill" style="border-color:#06d6a0;" id="btn-gamble-win">🃏 Double ${formatCoins(this.lastGambleAmount)}?</button>`
-            : `<button class="piggy-pill" style="border-color:${this.state.slotsFreePlay ? '#06d6a0' : '#ff9f1c'};" id="btn-toggle-freeplay">${this.state.slotsFreePlay ? '♾️ Free Play: ON' : '💰 Bet Mode'}</button>`
+            : vipPillHtml
         }
       </div>
 
@@ -448,7 +541,7 @@ class FairCoinSlotsApp {
         <div class="bet-box">
           <button class="bet-step-btn" id="btn-bet-down">−</button>
           <div class="bet-display">
-            <small>${this.state.slotsFreePlay ? 'WIN SCALE' : 'BET'}</small>
+            <small>BET</small>
             <strong>${formatCoins(bet)}</strong>
           </div>
           <button class="bet-step-btn" id="btn-bet-up">+</button>
@@ -499,19 +592,7 @@ class FairCoinSlotsApp {
     });
 
     panel.querySelector('#btn-gamble-win')?.addEventListener('click', () => this.openGambleModal());
-
-    panel.querySelector('#btn-toggle-freeplay')?.addEventListener('click', () => {
-      if (this.isSpinning) return;
-      this.state.slotsFreePlay = !this.state.slotsFreePlay;
-      this.sfx.playTap();
-      saveGameState(this.state);
-      this.showToast(
-        this.state.slotsFreePlay
-          ? '♾️ Free Play ON — unlimited spins!'
-          : '💰 Classic Bet Mode active.'
-      );
-      this.renderSlotsTab();
-    });
+    panel.querySelector('#btn-vip-quick')?.addEventListener('click', () => this.handleVipPassAction());
 
     panel.querySelector('#btn-bet-down')?.addEventListener('click', () => {
       if (this.isSpinning) return;
@@ -564,7 +645,7 @@ class FairCoinSlotsApp {
       <h2 style="margin:0;color:#ffd166;">🃏 Double Your Win!</h2>
       <p style="margin:0;font-size:13px;color:#c7b8e8;">
         Current win: <b>🪙 ${formatCoins(amount)}</b>.<br/>
-        Pick Red or Black for <b>2x (${formatCoins(amount * 2)})</b>.
+        Pick Red or Black for <b>2x (${formatCoins(amount * 2)})</b>!
       </p>
       <div style="display:flex;gap:10px;justify-content:center;">
         <button class="action-btn pink" id="gamble-red">♥️ RED (2x)</button>
@@ -577,8 +658,9 @@ class FairCoinSlotsApp {
     const resolve = (choice: 'red' | 'black') => {
       if (resolved) return;
       resolved = true;
-      const cardIsRed = Math.random() < 0.5;
-      const won = (choice === 'red' && cardIsRed) || (choice === 'black' && !cardIsRed);
+      // Rigged slightly in house favor (40% win / 60% house win) to burn high-win stacks
+      const won = Math.random() < 0.4;
+      const cardIsRed = won ? choice === 'red' : choice !== 'red';
       this.lastGambleAmount = 0;
       if (won) {
         this.state.coins += amount;
@@ -590,7 +672,7 @@ class FairCoinSlotsApp {
       } else {
         this.state.coins = Math.max(0, this.state.coins - amount);
         this.sfx.playReelStop(0);
-        this.showToast(`Unlucky — it was ${cardIsRed ? '♥️ Red' : '♠️ Black'}.`);
+        this.showToast(`💥 House card was ${cardIsRed ? '♥️ Red' : '♠️ Black'}! Lost wagered win.`);
       }
       saveGameState(this.state);
       backdrop.classList.add('hidden');
@@ -617,9 +699,8 @@ class FairCoinSlotsApp {
 
     const bet = BET_STEPS[this.state.betIndex] ?? BET_STEPS[0];
     const usingFreeSpin = this.state.freeSpins > 0;
-    const freePlay = this.state.slotsFreePlay;
 
-    if (!usingFreeSpin && !freePlay && this.state.coins < bet) {
+    if (!usingFreeSpin && this.state.coins < bet) {
       if (this.state.coins < BET_STEPS[0]) {
         this.autoSpin = false;
         this.claimRescueBonus();
@@ -642,7 +723,7 @@ class FairCoinSlotsApp {
     this.sfx.playSpinStart();
 
     if (usingFreeSpin) this.state.freeSpins -= 1;
-    else if (!freePlay) this.state.coins -= bet;
+    else this.state.coins -= bet;
 
     this.state.jackpots.mini += Math.round(bet * 0.015);
     this.state.jackpots.minor += Math.round(bet * 0.025);
@@ -876,15 +957,16 @@ class FairCoinSlotsApp {
     renderModal(false);
   }
 
-  // ===================== 2. ARCADE TAB (Dozer, Plinko, Scratch, Village & Raid) =====================
+  // ===================== 2. ARCADE TAB (Dozer, Plinko, High-Roller, Lucky Games, Village & Raid) =====================
   private renderArcadeTab(): void {
     const panel = this.root.querySelector<HTMLElement>('#tab-arcade')!;
     panel.innerHTML = `
       <div class="subtab-strip">
         <button class="subtab-btn ${this.arcadeSub === 'dozer' ? 'active' : ''}" data-sub="dozer">🪙 Coin Dozer</button>
         <button class="subtab-btn ${this.arcadeSub === 'plinko' ? 'active' : ''}" data-sub="plinko">🟢 Plinko</button>
-        <button class="subtab-btn ${this.arcadeSub === 'scratch' ? 'active' : ''}" data-sub="scratch">🎫 Scratch Card</button>
-        <button class="subtab-btn ${this.arcadeSub === 'village' ? 'active' : ''}" data-sub="village">🏘️ Village & Raid</button>
+        <button class="subtab-btn ${this.arcadeSub === 'highroller' ? 'active' : ''}" data-sub="highroller">🔥 High-Roller</button>
+        <button class="subtab-btn ${this.arcadeSub === 'scratch' ? 'active' : ''}" data-sub="scratch">🎲 Lucky Games</button>
+        <button class="subtab-btn ${this.arcadeSub === 'village' ? 'active' : ''}" data-sub="village">🏘️ Village</button>
       </div>
       <div id="arcade-body" style="display:flex;flex-direction:column;gap:10px;"></div>
     `;
@@ -900,6 +982,7 @@ class FairCoinSlotsApp {
     const body = panel.querySelector<HTMLElement>('#arcade-body')!;
     if (this.arcadeSub === 'dozer') this.renderDozer(body);
     else if (this.arcadeSub === 'plinko') this.renderPlinko(body);
+    else if (this.arcadeSub === 'highroller') this.renderHighRoller(body);
     else if (this.arcadeSub === 'scratch') this.renderScratchAndDice(body);
     else this.renderVillageAndRaid(body);
   }
@@ -908,21 +991,27 @@ class FairCoinSlotsApp {
     body.innerHTML = `
       <div class="card" style="align-items:center;text-align:center;">
         <h2>🪙 Coin Dozer</h2>
-        <p>Tap anywhere on the board to drop coins and push 💎 gems, 🎟️ spins & 🎁 chests.</p>
+        <p>Drop coins (1M each, free if under 1M) to push 💎 15M gems, 🎟️ free spins & 🎁 chests!</p>
         <canvas id="dozer-canvas" width="300" height="250" style="border-radius:14px;border:2px solid #ffd166;cursor:pointer;max-width:100%;"></canvas>
-        <button class="action-btn" id="btn-dozer-drop">Drop Coin</button>
+        <button class="action-btn" id="btn-dozer-drop">Drop Coin (1M)</button>
       </div>
     `;
 
     const canvas = body.querySelector<HTMLCanvasElement>('#dozer-canvas')!;
     this.dozerCtrl = new CoinDozerController(canvas, {
-      onDropCost: () => {
+      onDropCost: (cost) => {
+        const effectiveCost = this.state.coins >= cost ? cost : 0;
+        if (effectiveCost > 0) {
+          this.state.coins -= effectiveCost;
+        }
         incrementQuest(this.state, 'arcade', 1);
         saveGameState(this.state);
+        this.renderHud();
         return true;
       },
       onScoreCoins: (c, chests, spins) => {
         this.state.coins += c;
+        this.state.totalWon += c;
         this.state.chests += chests;
         this.state.freeSpins += spins;
         saveGameState(this.state);
@@ -949,12 +1038,13 @@ class FairCoinSlotsApp {
   }
 
   private renderPlinko(body: HTMLElement): void {
+    const plinkoBets = [5_000_000, 25_000_000, 100_000_000, 500_000_000, 1_000_000_000];
     body.innerHTML = `
       <div class="card" style="align-items:center;text-align:center;">
         <h2>🟢 Plinko Drop</h2>
-        <p>Pick a win scale and drop balls for up to <b>15x</b> payouts.</p>
-        <div class="subtab-strip" style="justify-content:center;">
-          ${[1_000_000, 10_000_000, 50_000_000, 250_000_000]
+        <p>Wager per ball and drop for up to <b>12x</b> edge multipliers!</p>
+        <div class="subtab-strip" style="justify-content:center;max-width:100%;">
+          ${plinkoBets
             .map(
               (amt) =>
                 `<button class="subtab-btn ${this.plinkoBet === amt ? 'active' : ''}" data-pbet="${amt}">${formatCoins(amt)}</button>`
@@ -962,7 +1052,7 @@ class FairCoinSlotsApp {
             .join('')}
         </div>
         <canvas id="plinko-canvas" width="300" height="260" style="border-radius:14px;border:2px solid #4cc9f0;max-width:100%;"></canvas>
-        <button class="action-btn green" id="btn-plinko-drop">Drop Ball (${formatCoins(this.plinkoBet)})</button>
+        <button class="action-btn green" id="btn-plinko-drop">Drop Ball (Bet ${formatCoins(this.plinkoBet)})</button>
       </div>
     `;
 
@@ -982,7 +1072,7 @@ class FairCoinSlotsApp {
         this.state.totalWon += payout;
         saveGameState(this.state);
         this.renderHud();
-        if (mult >= 4) {
+        if (mult >= 3) {
           this.sfx.playBigWin();
           this.spawnCoinShower(14);
           this.showToast(`🟢 Plinko ${mult}x! +${formatCoins(payout)} coins!`);
@@ -994,18 +1084,226 @@ class FairCoinSlotsApp {
     );
 
     body.querySelector('#btn-plinko-drop')?.addEventListener('click', () => {
+      if (this.state.coins < this.plinkoBet) {
+        this.showToast(`Need ${formatCoins(this.plinkoBet)} coins! Lower your bet or play Lucky Games.`);
+        return;
+      }
+      this.state.coins -= this.plinkoBet;
       incrementQuest(this.state, 'arcade', 1);
       saveGameState(this.state);
+      this.renderHud();
       this.plinkoCtrl?.dropBall(this.plinkoBet);
+    });
+  }
+
+  private renderHighRoller(body: HTMLElement): void {
+    const flipBets = [50_000_000, 250_000_000, 1_000_000_000];
+    const allInHalf = Math.max(10_000_000, Math.floor(this.state.coins * 0.5));
+    const vaultBets = [25_000_000, 100_000_000, 500_000_000, 1_000_000_000];
+    const currentVaultMult = this.vaultStep > 0 ? VAULT_MULTS[Math.min(VAULT_MULTS.length - 1, this.vaultStep - 1)] : 0;
+    const currentVaultCashout = Math.round(this.vaultBet * currentVaultMult);
+
+    body.innerHTML = `
+      <div class="card">
+        <h2>🔥 Crimson Coin Flip (2x)</h2>
+        <p>Pick your wager and call <b>Gold</b> or <b>Ruby</b> to double your bet!</p>
+        <div class="subtab-strip" style="max-width:100%;">
+          ${flipBets
+            .map(
+              (amt) =>
+                `<button class="subtab-btn ${this.highRollerBet === amt ? 'active' : ''}" data-fbet="${amt}">${formatCoins(amt)}</button>`
+            )
+            .join('')}
+          <button class="subtab-btn ${this.highRollerBet === -1 ? 'active' : ''}" data-fbet="-1">50% ALL-IN (${formatCoins(allInHalf)})</button>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="action-btn" style="flex:1;" id="btn-flip-gold">🪙 GOLD (2x)</button>
+          <button class="action-btn pink" style="flex:1;" id="btn-flip-ruby">💎 RUBY (2x)</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>🧨 Bomb Vault (Up to 6.5x)</h2>
+        <p>Crack safe tiles to climb multipliers — watch out for hidden bombs!</p>
+        ${
+          !this.vaultActive
+            ? `
+          <div class="subtab-strip" style="max-width:100%;">
+            ${vaultBets
+              .map(
+                (amt) =>
+                  `<button class="subtab-btn ${this.vaultBet === amt ? 'active' : ''}" data-vbet="${amt}">${formatCoins(amt)}</button>`
+              )
+              .join('')}
+          </div>
+          <button class="action-btn secondary" id="btn-vault-start">Open Vault (${formatCoins(this.vaultBet)} Bet)</button>
+        `
+            : `
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#ffd166;font-weight:800;">
+            <span>Stake: 🪙 ${formatCoins(this.vaultBet)}</span>
+            <span>Next Safe: ${VAULT_MULTS[Math.min(VAULT_MULTS.length - 1, this.vaultStep)]}x</span>
+          </div>
+          <div class="vault-grid">
+            ${this.vaultRevealed
+              .map((st, idx) => {
+                if (st === 'safe') {
+                  return `<div class="vault-tile safe"><span>💎</span><small>SAFE</small></div>`;
+                }
+                if (st === 'bomb') {
+                  return `<div class="vault-tile bomb"><span>💥</span><small>BOMB</small></div>`;
+                }
+                return `<button class="vault-tile" data-vault-cell="${idx}"><span>🔒</span><small>OPEN</small></button>`;
+              })
+              .join('')}
+          </div>
+          <button class="action-btn green" id="btn-vault-cashout" ${this.vaultStep <= 0 ? 'disabled' : ''}>
+            ${this.vaultStep > 0 ? `💰 Cash Out 🪙 ${formatCoins(currentVaultCashout)} (${currentVaultMult}x)` : 'Pick at least 1 Safe'}
+          </button>
+        `
+        }
+      </div>
+    `;
+
+    body.querySelectorAll<HTMLButtonElement>('[data-fbet]').forEach((b) => {
+      b.addEventListener('click', () => {
+        this.highRollerBet = Number(b.dataset.fbet);
+        this.sfx.playTap();
+        this.renderArcadeTab();
+      });
+    });
+
+    const playFlip = (side: 'gold' | 'ruby') => {
+      const stake = this.highRollerBet === -1 ? Math.max(10_000_000, Math.floor(this.state.coins * 0.5)) : this.highRollerBet;
+      if (this.state.coins < stake) {
+        this.showToast(`Need ${formatCoins(stake)} coins! Play Lucky Games or lower wager.`);
+        return;
+      }
+      this.state.coins -= stake;
+      incrementQuest(this.state, 'arcade', 1);
+
+      // House-rigged odds: 38% win / 62% house win
+      const won = Math.random() < 0.38;
+      const landed = won ? side : side === 'gold' ? 'ruby' : 'gold';
+      if (won) {
+        const payout = stake * 2;
+        this.state.coins += payout;
+        this.state.totalWon += stake;
+        this.sfx.playBigWin();
+        this.spawnCoinShower(16);
+        this.showToast(`🔥 ${landed === 'gold' ? '🪙 GOLD' : '💎 RUBY'}! Won +${formatCoins(stake)} profit!`);
+      } else {
+        this.sfx.playReelStop(0);
+        this.showToast(`💥 Landed ${landed === 'gold' ? '🪙 GOLD' : '💎 RUBY'} — lost ${formatCoins(stake)}!`);
+      }
+      saveGameState(this.state);
+      this.renderHud();
+      this.renderArcadeTab();
+    };
+
+    body.querySelector('#btn-flip-gold')?.addEventListener('click', () => playFlip('gold'));
+    body.querySelector('#btn-flip-ruby')?.addEventListener('click', () => playFlip('ruby'));
+
+    body.querySelectorAll<HTMLButtonElement>('[data-vbet]').forEach((b) => {
+      b.addEventListener('click', () => {
+        this.vaultBet = Number(b.dataset.vbet);
+        this.sfx.playTap();
+        this.renderArcadeTab();
+      });
+    });
+
+    body.querySelector('#btn-vault-start')?.addEventListener('click', () => {
+      if (this.state.coins < this.vaultBet) {
+        this.showToast(`Need ${formatCoins(this.vaultBet)} coins to enter Bomb Vault!`);
+        return;
+      }
+      this.state.coins -= this.vaultBet;
+      this.vaultActive = true;
+      this.vaultStep = 0;
+      this.vaultRevealed = Array(6).fill('hidden');
+      this.vaultBombs.clear();
+      while (this.vaultBombs.size < 2) {
+        this.vaultBombs.add(Math.floor(Math.random() * 6));
+      }
+      incrementQuest(this.state, 'arcade', 1);
+      saveGameState(this.state);
+      this.sfx.playTap();
+      this.renderHud();
+      this.renderArcadeTab();
+    });
+
+    body.querySelectorAll<HTMLButtonElement>('[data-vault-cell]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (!this.vaultActive) return;
+        const idx = Number(btn.dataset.vaultCell);
+        if (this.vaultRevealed[idx] !== 'hidden') return;
+
+        // Subtle house edge: bombs set + extra trap probability after 2+ greed steps
+        const extraTrapChance = this.vaultStep >= 2 ? 0.35 : 0.12;
+        const hitBomb = this.vaultBombs.has(idx) || Math.random() < extraTrapChance;
+
+        if (hitBomb) {
+          this.vaultRevealed[idx] = 'bomb';
+          this.vaultBombs.forEach((bIdx) => {
+            if (this.vaultRevealed[bIdx] === 'hidden') this.vaultRevealed[bIdx] = 'bomb';
+          });
+          this.vaultActive = false;
+          this.vaultStep = 0;
+          saveGameState(this.state);
+          this.sfx.playReelStop(0);
+          this.showToast(`💥 BOOM! Vault trap ate your ${formatCoins(this.vaultBet)} stake!`);
+          this.renderHud();
+          this.renderArcadeTab();
+          return;
+        }
+
+        this.vaultRevealed[idx] = 'safe';
+        this.vaultStep += 1;
+        this.sfx.playCoin();
+
+        if (this.vaultStep >= 4) {
+          const mult = VAULT_MULTS[Math.min(VAULT_MULTS.length - 1, this.vaultStep - 1)];
+          const payout = Math.round(this.vaultBet * mult);
+          this.state.coins += payout;
+          this.state.totalWon += payout;
+          this.vaultActive = false;
+          this.vaultStep = 0;
+          saveGameState(this.state);
+          this.sfx.playBigWin();
+          this.spawnCoinShower(18);
+          this.showToast(`🏆 Vault Cleared (${mult}x)! +${formatCoins(payout)} coins!`);
+          this.renderHud();
+        }
+        this.renderArcadeTab();
+      });
+    });
+
+    body.querySelector('#btn-vault-cashout')?.addEventListener('click', () => {
+      if (!this.vaultActive || this.vaultStep <= 0) return;
+      const mult = VAULT_MULTS[Math.min(VAULT_MULTS.length - 1, this.vaultStep - 1)];
+      const payout = Math.round(this.vaultBet * mult);
+      this.state.coins += payout;
+      this.state.totalWon += payout;
+      this.vaultActive = false;
+      this.vaultStep = 0;
+      saveGameState(this.state);
+      this.sfx.playBigWin();
+      this.spawnCoinShower(14);
+      this.showToast(`💰 Cashed out ${mult}x! +${formatCoins(payout)} coins!`);
+      this.renderHud();
+      this.renderArcadeTab();
     });
   }
 
   private renderScratchAndDice(body: HTMLElement): void {
     const allDone = this.scratchBoard.every((s) => s.revealed);
+    const scratchFree = this.state.coins < SCRATCH_CARD_COST;
+    const diceBets = [10_000_000, 50_000_000, 200_000_000];
+    const effectiveDiceBet = this.state.coins >= this.diceBet ? this.diceBet : 0;
+
     body.innerHTML = `
       <div class="card">
-        <h2>🎫 Lucky Scratch Card</h2>
-        <p>Scratch all 6 tiles for instant coins and free spins.</p>
+        <h2>🎫 Golden Scratch Card</h2>
+        <p>Scratch all 6 tiles for guaranteed profit + free spins!</p>
         <div class="scratch-grid">
           ${this.scratchBoard
             .map((cell, idx) =>
@@ -1015,13 +1313,23 @@ class FairCoinSlotsApp {
             )
             .join('')}
         </div>
-        ${allDone ? `<button class="action-btn" id="btn-new-scratch">New Scratch Card</button>` : ''}
+        ${allDone ? `<button class="action-btn" id="btn-new-scratch">${scratchFree ? 'New Free Scratch Card' : `Buy New Card (🪙 ${formatCoins(SCRATCH_CARD_COST)})`}</button>` : ''}
       </div>
 
       <div class="card">
-        <h3>🎲 Lucky Dice</h3>
-        <p>Roll 2 dice: roll 7 or higher to win <b>45M coins</b>!</p>
-        <button class="action-btn secondary" id="btn-roll-dice">🎲 Roll Dice (7+ wins 45M)</button>
+        <h3>🎲 Lucky Dice (Hot Streak)</h3>
+        <p>Roll <b>5 or higher</b> on 2 dice to win <b>1.45x</b> your bet!${effectiveDiceBet === 0 ? ' (Free recovery mode: win +15M!)' : ''}</p>
+        <div class="subtab-strip" style="max-width:100%;">
+          ${diceBets
+            .map(
+              (amt) =>
+                `<button class="subtab-btn ${this.diceBet === amt ? 'active' : ''}" data-dbet="${amt}">${formatCoins(amt)}</button>`
+            )
+            .join('')}
+        </div>
+        <button class="action-btn green" id="btn-roll-dice">
+          🎲 Roll Dice (${effectiveDiceBet > 0 ? `Bet ${formatCoins(effectiveDiceBet)} → ${formatCoins(Math.round(effectiveDiceBet * 1.45))}` : 'FREE Roll → +15M'})
+        </button>
       </div>
     `;
 
@@ -1032,6 +1340,7 @@ class FairCoinSlotsApp {
         if (!tile || tile.revealed) return;
         tile.revealed = true;
         this.state.coins += tile.coins;
+        this.state.totalWon += tile.coins;
         this.state.freeSpins += tile.spins;
         incrementQuest(this.state, 'arcade', 1);
         saveGameState(this.state);
@@ -1042,33 +1351,64 @@ class FairCoinSlotsApp {
     });
 
     body.querySelector('#btn-new-scratch')?.addEventListener('click', () => {
+      if (this.state.coins >= SCRATCH_CARD_COST) {
+        this.state.coins -= SCRATCH_CARD_COST;
+        saveGameState(this.state);
+      }
       this.resetScratchBoard();
       this.sfx.playTap();
+      this.renderHud();
       this.renderArcadeTab();
     });
 
+    body.querySelectorAll<HTMLButtonElement>('[data-dbet]').forEach((b) => {
+      b.addEventListener('click', () => {
+        this.diceBet = Number(b.dataset.dbet);
+        this.sfx.playTap();
+        this.renderArcadeTab();
+      });
+    });
+
     body.querySelector('#btn-roll-dice')?.addEventListener('click', () => {
-      const d1 = 1 + Math.floor(Math.random() * 6);
-      const d2 = 1 + Math.floor(Math.random() * 6);
+      const wager = this.state.coins >= this.diceBet ? this.diceBet : 0;
+      if (wager > 0) this.state.coins -= wager;
+
+      // Player-favored weighted dice (~82% win rate for sum >= 5)
+      const weightedDie = () => {
+        const r = Math.random();
+        if (r < 0.08) return 1;
+        if (r < 0.18) return 2;
+        if (r < 0.36) return 3;
+        if (r < 0.56) return 4;
+        if (r < 0.78) return 5;
+        return 6;
+      };
+      const d1 = weightedDie();
+      const d2 = weightedDie();
       const sum = d1 + d2;
       incrementQuest(this.state, 'arcade', 1);
-      if (sum >= 7) {
-        this.state.coins += 45_000_000;
+
+      if (sum >= 5) {
+        const payout = wager > 0 ? Math.round(wager * 1.45) : 15_000_000;
+        this.state.coins += payout;
+        this.state.totalWon += payout;
         this.sfx.playBigWin();
         this.spawnCoinShower(10);
-        this.showToast(`🎲 ${d1} + ${d2} = ${sum}! Won +45M coins!`);
+        this.showToast(`🎲 ${d1} + ${d2} = ${sum}! Won +${formatCoins(payout)} coins!`);
       } else {
         this.sfx.playReelStop(0);
-        this.showToast(`🎲 ${d1} + ${d2} = ${sum}. Under 7 — roll again!`);
+        this.showToast(`🎲 ${d1} + ${d2} = ${sum}. Rare miss — roll again!`);
       }
       saveGameState(this.state);
       this.renderHud();
+      this.renderArcadeTab();
     });
   }
 
   private renderVillageAndRaid(body: HTMLElement): void {
     const kingdomLvl = getKingdomLevel(this.state);
     const mult = getTotalMultiplier(this.state);
+    const raidFree = this.state.coins < RAID_COST;
 
     body.innerHTML = `
       <div class="card">
@@ -1083,7 +1423,7 @@ class FairCoinSlotsApp {
             )
             .join('')}
         </div>
-        ${this.raidDoneBoard ? `<button class="action-btn" id="btn-next-raid">Find New Rival</button>` : ''}
+        ${this.raidDoneBoard ? `<button class="action-btn" id="btn-next-raid">${raidFree ? 'Find Free Rival' : `Next Rival (🪙 ${formatCoins(RAID_COST)})`}</button>` : ''}
       </div>
 
       <div class="card">
@@ -1117,6 +1457,7 @@ class FairCoinSlotsApp {
         this.raidRevealed[idx] = true;
         const loot = this.raidValues[idx];
         this.state.coins += loot;
+        this.state.totalWon += loot;
         this.state.shields = Math.min(3, this.state.shields + (Math.random() < 0.35 ? 1 : 0));
         incrementQuest(this.state, 'arcade', 1);
         if (this.raidRevealed.filter(Boolean).length >= 3) {
@@ -1132,8 +1473,13 @@ class FairCoinSlotsApp {
     });
 
     body.querySelector('#btn-next-raid')?.addEventListener('click', () => {
+      if (this.state.coins >= RAID_COST) {
+        this.state.coins -= RAID_COST;
+        saveGameState(this.state);
+      }
       this.resetRaidBoard();
       this.sfx.playTap();
+      this.renderHud();
       this.renderArcadeTab();
     });
 
@@ -1541,7 +1887,29 @@ class FairCoinSlotsApp {
       this.globalStatusText ||
       (this.state.apiBaseUrl ? 'Connecting...' : 'Offline Mode — Local Records');
 
+    const claimedThisMonth = this.isPassClaimedThisMonth();
+    const processingPass = this.isPassProcessing();
+    const vipBtnLabel = processingPass
+      ? `⏳ Verifying Payment (<span id="vip-card-timer">${this.formatMmSs(this.state.passProcessingUntil! - Date.now())}</span>)...`
+      : claimedThisMonth
+        ? '✅ VIP Pass Active This Month'
+        : '👑 Buy €5.00 VIP Pass (€0.00 Real Money)';
+
     body.innerHTML = `
+      <div class="card vip-pass-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <h2>👑 Monthly VIP Pass</h2>
+          <span class="vip-price-tag">€5.00 • €0 Charged</span>
+        </div>
+        <p>
+          Unlock once per month! Instant pack: <b>🪙 +1B Coins</b>, <b>🎟️ +50 Free Spins (3x)</b>, <b>🎁 +5 Chests</b> & <b>+0.5x Win Multiplier</b>.<br/>
+          <small style="color:#ffd166;">Zero real money ever spent — simulated patience verification only.</small>
+        </p>
+        <button class="action-btn ${claimedThisMonth ? 'green' : ''}" id="btn-buy-vip-pass" ${claimedThisMonth && !processingPass ? 'disabled' : ''}>
+          ${vipBtnLabel}
+        </button>
+      </div>
+
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
           <h2 id="slots-hs-heading" style="cursor:pointer;">🏆 Leaderboard</h2>
@@ -1617,6 +1985,8 @@ class FairCoinSlotsApp {
           .join('')}
       </div>
     `;
+
+    body.querySelector('#btn-buy-vip-pass')?.addEventListener('click', () => this.handleVipPassAction());
 
     body.querySelector('#slots-hs-heading')?.addEventListener('click', () => {
       this.leaderboardTapCount += 1;
@@ -2083,6 +2453,8 @@ class FairCoinSlotsApp {
         this.winningCells.clear();
         this.winningLines = [];
         this.lastGambleAmount = 0;
+        this.vaultActive = false;
+        this.vaultStep = 0;
 
         localStorage.removeItem('fair_coin_slots_state_v2');
         localStorage.removeItem('fair_coin_slots_state_v1');
@@ -2103,6 +2475,144 @@ class FairCoinSlotsApp {
     };
 
     renderInfo();
+  }
+
+  private openVipConfirmModal(step: 1 | 2 | 3 | 4): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    const prompts: Record<1 | 2 | 3 | 4, { title: string; msg: string; ok: string }> = {
+      1: {
+        title: '👑 Monthly VIP Pass — Step 1/4',
+        msg: 'Unlock the <b>€5.00 Monthly VIP Pass</b>? No real money is ever charged (€0.00). Are you sure you want to proceed?',
+        ok: 'OK, Continue (1/4)',
+      },
+      2: {
+        title: '🤔 Are You Sure? — Step 2/4',
+        msg: 'Just checking! Verification takes a ~5 minute loading wait instead of paying €5.00. Still want to continue?',
+        ok: 'Yes, I Am Sure (2/4)',
+      },
+      3: {
+        title: '⚠️ Really Sure? — Step 3/4',
+        msg: 'You can only claim this Monthly VIP Pass <b>once per month</b>. Confirm you want to activate it now?',
+        ok: 'Really Sure (3/4)',
+      },
+      4: {
+        title: '🚀 Final Confirmation — Step 4/4',
+        msg: 'Click <b>OK</b> below to begin your 5-minute simulated checkout (€0.00 real money charged).',
+        ok: 'OK — Start Payment (4/4)',
+      },
+    };
+
+    const current = prompts[step];
+    box.innerHTML = `
+      <h2 style="margin:0;color:#ffd166;">${current.title}</h2>
+      <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">${current.msg}</p>
+      <div style="font-size:12px;color:#06d6a0;font-weight:800;">Confirmation ${step} of 4 • €0.00 Real Money</div>
+      <div style="display:flex;gap:8px;justify-content:center;">
+        <button class="action-btn secondary" id="vip-confirm-cancel" style="flex:1;">Cancel</button>
+        <button class="action-btn" id="vip-confirm-ok" style="flex:1.4;">${current.ok}</button>
+      </div>
+    `;
+
+    box.querySelector('#vip-confirm-cancel')?.addEventListener('click', () => {
+      backdrop.classList.add('hidden');
+      this.sfx.playTap();
+      this.showToast('VIP Pass checkout cancelled.');
+    });
+
+    box.querySelector('#vip-confirm-ok')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      if (step < 4) {
+        this.openVipConfirmModal((step + 1) as 2 | 3 | 4);
+      } else {
+        this.state.passProcessingUntil = Date.now() + VIP_PASS_DURATION_MS;
+        saveGameState(this.state);
+        this.renderHud();
+        this.renderActiveTab();
+        this.openVipLoadingModal();
+      }
+    });
+  }
+
+  private openVipLoadingModal(): void {
+    const until = this.state.passProcessingUntil;
+    if (!until) return;
+    const remaining = until - Date.now();
+    if (remaining <= 0) {
+      this.completeVipPassPurchase();
+      return;
+    }
+
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    const pct = Math.min(100, Math.max(2, Math.round(((VIP_PASS_DURATION_MS - remaining) / VIP_PASS_DURATION_MS) * 100)));
+
+    box.innerHTML = `
+      <h2 style="margin:0;color:#ffd166;">⏳ Processing €5.00 VIP Pass</h2>
+      <div class="vip-loader-ring" aria-label="Loading"></div>
+      <div style="font-size:24px;font-weight:900;color:#ffd166;letter-spacing:1px;" id="vip-pass-countdown">${this.formatMmSs(remaining)}</div>
+      <div class="vip-progress-track">
+        <div class="vip-progress-fill" id="vip-pass-progress" style="width:${pct}%;"></div>
+      </div>
+      <p style="margin:0;font-size:12px;color:#c7b8e8;" id="vip-pass-status">${this.getVipLoadingStatus(remaining)}</p>
+      <div style="font-size:11px;color:#06d6a0;font-weight:800;">€0.00 Real Money Charged • Wait for completion!</div>
+      <button class="action-btn secondary" id="vip-minimize-btn">Keep Playing While Loading</button>
+    `;
+
+    box.querySelector('#vip-minimize-btn')?.addEventListener('click', () => {
+      backdrop.classList.add('hidden');
+      this.sfx.playTap();
+      this.showToast('⏳ VIP Pass still verifying in background!');
+    });
+  }
+
+  private completeVipPassPurchase(): void {
+    this.state.passProcessingUntil = null;
+    this.state.fairPassActive = true;
+    this.state.passActivatedAt = Date.now();
+    this.state.lastPassMonthKey = getCurrentMonthKey();
+    this.state.monthlySpentEur = 0;
+
+    // Grant Monthly VIP Pass rewards
+    this.state.coins += 1_000_000_000;
+    this.state.totalWon += 1_000_000_000;
+    this.state.freeSpins += 50;
+    this.state.freeSpinMultiplier = 3;
+    this.state.chests += 5;
+    saveGameState(this.state);
+
+    this.sfx.playBigWin();
+    this.spawnCoinShower(28);
+    this.spawnCoinFountain(24);
+    this.spawnConfettiBurst(36);
+    this.renderAll();
+
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    box.innerHTML = `
+      <h2 style="margin:0;color:#06d6a0;">✅ Payment Completed!</h2>
+      <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">
+        Your <b>Monthly VIP Pass</b> is now active! (<b>€0.00</b> actually charged)
+      </p>
+      <div style="background:rgba(255,209,102,0.14);border:1.5px solid #ffd166;border-radius:14px;padding:10px;font-size:13px;font-weight:800;color:#ffd166;display:flex;flex-direction:column;gap:4px;">
+        <div>🪙 +1,000,000,000 Coins</div>
+        <div>🎟️ +50 Free Spins (3x Multiplier)</div>
+        <div>🎁 +5 Treasure Chests</div>
+        <div>👑 3x Bonuses & +0.5x Win Multiplier All Month!</div>
+      </div>
+      <button class="action-btn green" id="vip-complete-close">Awesome — Collect VIP Rewards!</button>
+    `;
+
+    box.querySelector('#vip-complete-close')?.addEventListener('click', () => {
+      backdrop.classList.add('hidden');
+      this.sfx.playTap();
+    });
   }
 
   private showChestModal(drawn: { emoji: string; name: string; rarity: string }[]): void {
@@ -2135,7 +2645,7 @@ class FairCoinSlotsApp {
   }
 
   private claimRescueBonus(): void {
-    const bonus = 100_000_000;
+    const bonus = 50_000_000;
     this.state.coins += bonus;
     this.state.rescueCount += 1;
     saveGameState(this.state);
