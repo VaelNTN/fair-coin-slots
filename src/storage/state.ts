@@ -1,5 +1,11 @@
 import { Device } from '@capacitor/device';
 import {
+  ClubFeedRequest,
+  createInitialClubFeed,
+  DEFAULT_FOX_FRIENDS,
+  FoxFriend,
+} from '../data/foxClub';
+import {
   CARDS,
   CardItem,
   KINGDOM_BUILDINGS,
@@ -8,6 +14,11 @@ import {
   SLOT_MACHINES,
   STARTER_COINS,
 } from '../data/machines';
+import {
+  BUILDINGS_PER_VILLAGE,
+  getVillageStarsCount,
+  getWorldEconomyMultiplier,
+} from '../data/worldLevels';
 import { CharacterConfig } from '../game/mascotRenderer';
 import { JackpotKey } from '../game/slotEngine';
 
@@ -83,6 +94,22 @@ export interface GameState {
   revengeReady: boolean;
   rivalTargetName: string;
   simOfferProcessing: SimOfferProcessingState | null;
+  // 550+ Progressive Worlds & Fox Club ("Achterban")
+  villageLevel: number;
+  villageStars: number[];
+  totalStarsEarned: number;
+  clubId: string;
+  clubName: string;
+  clubBadge: string;
+  clubPoints: number;
+  myClubContribution: number;
+  claimedClubChestTiers: number[];
+  clubFeed: ClubFeedRequest[];
+  friends: FoxFriend[];
+  lastSpinRequestAt: number;
+  lastCardRequestAt: number;
+  lastCoinRequestAt: number;
+  friendInviteCode: string;
 }
 
 export function getCurrentMonthKey(d = new Date()): string {
@@ -209,6 +236,21 @@ export function createInitialState(deviceId = generateFallbackDeviceId()): GameS
     revengeReady: false,
     rivalTargetName: 'Crazy Foxy 🦊',
     simOfferProcessing: null,
+    villageLevel: 1,
+    villageStars: Array(BUILDINGS_PER_VILLAGE).fill(0),
+    totalStarsEarned: 0,
+    clubId: 'crazy-fox-legends',
+    clubName: 'Crazy Fox Legends',
+    clubBadge: '🦊',
+    clubPoints: 240,
+    myClubContribution: 40,
+    claimedClubChestTiers: [],
+    clubFeed: createInitialClubFeed(),
+    friends: DEFAULT_FOX_FRIENDS.map((f) => ({ ...f })),
+    lastSpinRequestAt: 0,
+    lastCardRequestAt: 0,
+    lastCoinRequestAt: 0,
+    friendInviteCode: `FOX-${deviceId.slice(-6).toUpperCase()}`,
   };
 }
 
@@ -238,6 +280,20 @@ export function loadGameState(deviceId?: string): GameState {
         ? Array.from(new Set(parsed.puzzlePieces.filter((n) => typeof n === 'number' && n >= 0 && n < 9)))
         : initial.puzzlePieces,
       crashHistory: Array.isArray(parsed.crashHistory) ? parsed.crashHistory.slice(0, 8) : initial.crashHistory,
+      villageLevel:
+        typeof parsed.villageLevel === 'number' && Number.isFinite(parsed.villageLevel) && parsed.villageLevel >= 1
+          ? Math.floor(parsed.villageLevel)
+          : 1,
+      villageStars: Array.isArray(parsed.villageStars) && parsed.villageStars.length === BUILDINGS_PER_VILLAGE
+        ? parsed.villageStars.map((s) => (typeof s === 'number' && Number.isFinite(s) ? Math.max(0, Math.min(5, Math.floor(s))) : 0))
+        : [...initial.villageStars],
+      totalStarsEarned:
+        typeof parsed.totalStarsEarned === 'number' && Number.isFinite(parsed.totalStarsEarned)
+          ? Math.max(0, Math.floor(parsed.totalStarsEarned))
+          : 0,
+      claimedClubChestTiers: Array.isArray(parsed.claimedClubChestTiers) ? parsed.claimedClubChestTiers : [],
+      clubFeed: Array.isArray(parsed.clubFeed) && parsed.clubFeed.length > 0 ? parsed.clubFeed : createInitialClubFeed(),
+      friends: Array.isArray(parsed.friends) && parsed.friends.length > 0 ? parsed.friends : DEFAULT_FOX_FRIENDS.map((f) => ({ ...f })),
       sessionStartAt: Date.now(),
       slotsFreePlay: false,
       monthlySpentEur: 0,
@@ -269,7 +325,8 @@ export function saveGameState(state: GameState): void {
 }
 
 export function xpNeededForLevel(level: number): number {
-  return Math.round(180 * Math.pow(1.24, level - 1));
+  const lv = Math.max(1, Math.floor(level));
+  return Math.round(180 + (lv - 1) * 95 + Math.pow(lv - 1, 1.45) * 14);
 }
 
 export function getBuildingUpgradeCost(baseCost: number, currentLevel: number): number {
@@ -277,24 +334,37 @@ export function getBuildingUpgradeCost(baseCost: number, currentLevel: number): 
 }
 
 export function getKingdomLevel(state: GameState): number {
-  return Object.values(state.buildings).reduce((sum, lvl) => sum + lvl, 0);
+  const legacy = Object.values(state.buildings).reduce((sum, lvl) => sum + lvl, 0);
+  const worldBonus = (state.villageLevel - 1) * 5 + getVillageStarsCount(state.villageStars);
+  return legacy + worldBonus;
 }
 
 export function getTotalMultiplier(state: GameState): number {
-  const buildingBonus = (getKingdomLevel(state) - KINGDOM_BUILDINGS.length) * 0.06;
+  const legacyBonus = (Object.values(state.buildings).reduce((sum, lvl) => sum + lvl, 0) - KINGDOM_BUILDINGS.length) * 0.04;
+  const worldBonus = (state.villageLevel - 1) * 0.08 + getVillageStarsCount(state.villageStars) * 0.015;
   const passBonus = state.fairPassActive ? 0.5 : 0;
-  return Number((1 + Math.max(0, buildingBonus) + passBonus).toFixed(2));
+  return Number((1 + Math.max(0, legacyBonus) + Math.max(0, worldBonus) + passBonus).toFixed(2));
+}
+
+export function addClubActivityPoints(state: GameState, pts: number): void {
+  const add = Math.max(1, Math.round(pts));
+  state.myClubContribution += add;
+  // Squad mates match a portion of active play so Co-op Club Chest climbs naturally
+  const squadAssist = Math.max(1, Math.round(add * (0.65 + Math.random() * 0.6)));
+  state.clubPoints += add + squadAssist;
 }
 
 export function grantXp(state: GameState, amount: number): { leveledUp: boolean; newLevel: number; levelReward: number } {
-  state.xp += amount;
+  const scaledGain = Math.round(amount * (1 + Math.floor((state.villageLevel - 1) / 10) * 0.25));
+  state.xp += scaledGain;
   let leveledUp = false;
   let levelReward = 0;
+  const econ = getWorldEconomyMultiplier(state.villageLevel);
   while (state.xp >= xpNeededForLevel(state.level)) {
     state.xp -= xpNeededForLevel(state.level);
     state.level += 1;
     leveledUp = true;
-    const bonus = state.level * 30_000_000 * (state.fairPassActive ? 2 : 1);
+    const bonus = Math.round((30_000_000 + state.level * 12_000_000) * econ * (state.fairPassActive ? 2 : 1));
     levelReward += bonus;
     state.coins += bonus;
     state.chests += 1;

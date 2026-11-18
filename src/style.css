@@ -878,9 +878,9 @@ body {
 /* Bottom Navigation */
 .bottom-nav {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  padding: 6px 6px max(8px, env(safe-area-inset-bottom, 8px));
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
+  padding: 6px 4px max(8px, env(safe-area-inset-bottom, 8px));
   background: rgba(18, 8, 38, 0.96);
   border-top: 2px solid var(--border-glow);
 }
@@ -1394,4 +1394,94 @@ body {
   gap: 6px;
 }
 
+/* 550+ Progressive Worlds & Fox Club ("Achterban") */
+.village-panorama {
+  width: 100%;
+  border-radius: 14px;
+  border: 2px solid var(--gold);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  display: block;
+}
 
+.world-pill {
+  border: 1.5px solid #4cc9f0;
+  background: linear-gradient(135deg, rgba(76, 201, 240, 0.22), rgba(114, 9, 183, 0.32));
+  color: #fff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.star-pip-row {
+  display: flex;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.star-pip.filled {
+  color: #ffd166;
+  text-shadow: 0 0 6px rgba(255, 209, 102, 0.7);
+}
+
+.star-pip.empty {
+  color: rgba(255, 255, 255, 0.22);
+}
+
+.world-map-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+}
+
+.world-map-row.current {
+  border-color: #ffd166;
+  background: linear-gradient(135deg, rgba(255, 209, 102, 0.18), rgba(168, 85, 247, 0.2));
+  box-shadow: 0 0 12px rgba(255, 209, 102, 0.24);
+}
+
+.world-map-row.completed {
+  border-color: rgba(6, 214, 160, 0.55);
+  background: rgba(6, 214, 160, 0.1);
+}
+
+.club-chest-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 7px;
+}
+
+.club-chest-item {
+  border-radius: 12px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+}
+
+.club-chest-item.ready {
+  border-color: #06d6a0;
+  background: rgba(6, 214, 160, 0.16);
+}
+
+.club-feed-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(15, 6, 33, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}

@@ -121,7 +121,7 @@ export const BET_STEPS: number[] = [
 export function formatCoins(amount: number): string {
   const n = Math.max(0, Math.floor(amount));
   if (n < 1_000) return n.toString();
-  const suffixes = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx'];
+  const suffixes = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
   const tier = Math.min(suffixes.length - 1, Math.floor(Math.log10(n) / 3));
   const scaled = n / Math.pow(10, tier * 3);
   const formatted = scaled >= 100 ? scaled.toFixed(0) : scaled >= 10 ? scaled.toFixed(1) : scaled.toFixed(2);

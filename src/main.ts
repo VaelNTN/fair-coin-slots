@@ -5,7 +5,13 @@ import {
   submitGlobalSlotsScore,
 } from './api/highscores';
 import {
-  BET_STEPS,
+  CLUB_CHEST_TIERS,
+  CLUB_TEMPLATES,
+  DEFAULT_SQUAD_MEMBERS,
+  EXTRA_FRIEND_POOL,
+  RIVAL_CLUBS,
+} from './data/foxClub';
+import {
   CARDS,
   CARD_SETS,
   CHARACTER_COLORS,
@@ -13,9 +19,7 @@ import {
   CharacterSpecies,
   formatCoins,
   formatCoinsFull,
-  HIGH_ROLLER_EXTRA_BETS,
   KENO_PAYOUTS,
-  KINGDOM_BUILDINGS,
   PET_CATALOG,
   PetId,
   QUEST_TEMPLATES,
@@ -29,6 +33,18 @@ import {
   VIKING_QUEST_STEPS,
   WHEEL_SLICES,
 } from './data/machines';
+import {
+  BUILDINGS_PER_VILLAGE,
+  getDifficultyMeta,
+  getDynamicWorldBetSteps,
+  getVillageBuildingUpgradeCost,
+  getVillageDef,
+  getVillageStarsCount,
+  getWorldEconomyMultiplier,
+  STARS_PER_BUILDING,
+  STARS_PER_VILLAGE,
+  TOTAL_WORLD_LEVELS,
+} from './data/worldLevels';
 import { CoinDozerController, PlinkoController } from './game/arcadeGames';
 import {
   drawHiLoOutcomeCard,
@@ -57,11 +73,11 @@ import {
   SpinResult,
   WinningLine,
 } from './game/slotEngine';
+import { drawVillagePanoramaCanvas } from './game/villageSceneRenderer';
 import {
+  addClubActivityPoints,
   GameState,
-  getBuildingUpgradeCost,
   getCurrentMonthKey,
-  getKingdomLevel,
   getTotalMultiplier,
   grantXp,
   incrementQuest,
@@ -73,8 +89,9 @@ import {
   xpNeededForLevel,
 } from './storage/state';
 
-type TabId = 'slots' | 'arcade' | 'character' | 'bonuses';
+type TabId = 'slots' | 'arcade' | 'club' | 'character' | 'bonuses';
 type ArcadeSubTab = 'crash' | 'casino' | 'fox' | 'highroller' | 'dozer' | 'plinko' | 'scratch' | 'village';
+type ClubSubTab = 'club' | 'friends' | 'village' | 'map';
 type CharacterSubTab = 'studio' | 'pets';
 type BonusSubTab = 'wheel' | 'cards' | 'pass';
 
@@ -100,9 +117,12 @@ class FairCoinSlotsApp {
 
   private activeTab: TabId = 'slots';
   private arcadeSub: ArcadeSubTab = 'crash';
+  private clubSub: ClubSubTab = 'club';
   private characterSub: CharacterSubTab = 'studio';
   private bonusSub: BonusSubTab = 'wheel';
   private shopCategory: ShopCategory = 'outfit';
+  private mapRangeIdx = 0;
+  private showClubSwitcher = false;
 
   private isSpinning = false;
   private spinToken = 0;
@@ -267,6 +287,7 @@ class FairCoinSlotsApp {
       <main class="main-content">
         <section class="tab-panel active" id="tab-slots"></section>
         <section class="tab-panel" id="tab-arcade"></section>
+        <section class="tab-panel" id="tab-club"></section>
         <section class="tab-panel" id="tab-character"></section>
         <section class="tab-panel" id="tab-bonuses"></section>
       </main>
@@ -274,7 +295,8 @@ class FairCoinSlotsApp {
       <nav class="bottom-nav">
         <button class="nav-btn active" data-tab="slots"><span class="nav-ico">🎰</span><span>Slots</span></button>
         <button class="nav-btn" data-tab="arcade"><span class="nav-ico">🕹️</span><span>Arcade</span></button>
-        <button class="nav-btn" data-tab="character"><span class="nav-ico">👕</span><span>Character</span></button>
+        <button class="nav-btn" data-tab="club"><span class="nav-ico">🦊</span><span>Fox World</span></button>
+        <button class="nav-btn" data-tab="character"><span class="nav-ico">👕</span><span>Style</span></button>
         <button class="nav-btn" data-tab="bonuses"><span class="nav-ico">🎡</span><span>Rewards</span></button>
       </nav>
 
@@ -570,7 +592,8 @@ class FairCoinSlotsApp {
     }
     if (multEl) multEl.textContent = `${getTotalMultiplier(this.state)}x`;
     if (rescueBtn) {
-      rescueBtn.style.display = this.state.coins < 1_000_000 ? 'inline-block' : 'none';
+      const minBet = this.getSlotBetSteps()[0] ?? 100_000;
+      rescueBtn.style.display = this.state.coins < Math.max(1_000_000, minBet) ? 'inline-block' : 'none';
     }
   }
 
@@ -578,6 +601,7 @@ class FairCoinSlotsApp {
     this.cleanupSubCanvas();
     if (this.activeTab === 'slots') this.renderSlotsTab();
     else if (this.activeTab === 'arcade') this.renderArcadeTab();
+    else if (this.activeTab === 'club') this.renderClubAndWorldTab();
     else if (this.activeTab === 'character') this.renderCharacterTab();
     else if (this.activeTab === 'bonuses') this.renderBonusesTab();
   }
@@ -607,7 +631,7 @@ class FairCoinSlotsApp {
 
   private getSlotBetSteps(): number[] {
     const { event } = getActiveFlashEvent();
-    return event.id === 'high_roller' ? [...BET_STEPS, ...HIGH_ROLLER_EXTRA_BETS] : BET_STEPS;
+    return getDynamicWorldBetSteps(this.state.villageLevel, event.id === 'high_roller');
   }
 
   private renderSlotsTab(bannerText?: string, isBig = false): void {
@@ -620,6 +644,7 @@ class FairCoinSlotsApp {
     const bet = betSteps[this.state.betIndex] ?? betSteps[0];
     const flash = getActiveFlashEvent();
     const petBoost = getActivePetBoost(this.state);
+    const stars = getVillageStarsCount(this.state.villageStars);
 
     const vipPillHtml = this.isPassProcessing()
       ? `<button class="vip-pill" id="btn-vip-quick"><span class="vip-mini-dot"></span><span>VIP <span id="vip-quick-timer">${this.formatMmSs(this.state.passProcessingUntil! - Date.now())}</span></span></button>`
@@ -630,6 +655,8 @@ class FairCoinSlotsApp {
     const petPillHtml = `<button class="pet-status-pill" id="btn-hud-pet"><span id="hud-pet-timer">${
       petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦊 Feed Pet'
     }</span></button>`;
+
+    const worldPillHtml = `<button class="world-pill" id="btn-hud-world">🏘️ W${this.state.villageLevel}/${TOTAL_WORLD_LEVELS}+ (${stars}★)</button>`;
 
     panel.innerHTML = `
       <div class="flash-event-banner" style="border-color:${flash.event.color};">
@@ -660,6 +687,7 @@ class FairCoinSlotsApp {
 
       <div class="slot-quick-bar">
         <button class="piggy-pill" id="btn-piggy-break">🐷 Piggy: ${formatCoins(this.state.piggyBankCoins)}</button>
+        ${worldPillHtml}
         ${
           this.state.freeSpins > 0
             ? `<span class="freespin-pill">🎟️ ${this.state.freeSpins} FREE (${this.state.freeSpinMultiplier}x)</span>`
@@ -755,6 +783,11 @@ class FairCoinSlotsApp {
       this.spawnCoinFountain(14);
       this.showToast(`🐷 Piggy Bank opened! +${formatCoins(payout)} coins!`);
       this.renderAll();
+    });
+
+    panel.querySelector('#btn-hud-world')?.addEventListener('click', () => {
+      this.clubSub = 'village';
+      this.switchTab('club');
     });
 
     panel.querySelector('#btn-hud-pet')?.addEventListener('click', () => {
@@ -1001,7 +1034,9 @@ class FairCoinSlotsApp {
       this.state.freeSpinMultiplier = this.state.fairPassActive ? 3 : 2;
     }
 
-    // Bonus Crazy Fox / Coin Master style collectibles dropped from spins
+    // Bonus Crazy Fox collectibles & Fox Club squad activity from spins
+    addClubActivityPoints(this.state, finalWin > 0 ? 12 : 5);
+
     const extraDrops: string[] = [];
     const puzzleChance = flash.event.id === 'cards_boom' ? 0.32 : 0.16;
     if (Math.random() < puzzleChance) {
@@ -1020,7 +1055,12 @@ class FairCoinSlotsApp {
       this.state.gashaponTokens += 1;
       extraDrops.push('+1 🫧 Token');
     }
-    if (Math.random() < 0.08 && !this.state.revengeReady) {
+    if (Math.random() < 0.05) {
+      this.state.wheelSpins += 3;
+      extraDrops.push('🦊 Club Gift: +3 Wheel Spins');
+    }
+    const rivalRaidChance = Math.min(0.18, 0.08 + Math.floor(this.state.villageLevel / 60) * 0.01);
+    if (Math.random() < rivalRaidChance && !this.state.revengeReady) {
       if (this.state.shields > 0) {
         this.state.shields -= 1;
         extraDrops.push('🛡️ Shield blocked Rival Foxy!');
@@ -2155,13 +2195,15 @@ class FairCoinSlotsApp {
   }
 
   private renderVillageAndRaid(body: HTMLElement): void {
-    const kingdomLvl = getKingdomLevel(this.state);
-    const mult = getTotalMultiplier(this.state);
-    const raidFree = this.state.coins < RAID_COST;
-    const cannonFree = this.state.coins < CANNON_COST;
+    const def = getVillageDef(this.state.villageLevel);
+    const econ = getWorldEconomyMultiplier(this.state.villageLevel);
+    const scaledRaidCost = Math.round(RAID_COST * econ);
+    const scaledCannonCost = Math.round(CANNON_COST * econ);
+    const raidFree = this.state.coins < scaledRaidCost;
+    const cannonFree = this.state.coins < scaledCannonCost;
     const flash = getActiveFlashEvent();
     const petBoost = getActivePetBoost(this.state);
-    const raidMult = (flash.event.id === 'raid_madness' ? 2 : 1) * (petBoost.pet?.id === 'foxy' ? 1.35 : 1);
+    const raidMult = (flash.event.id === 'raid_madness' ? 2 : 1) * (petBoost.pet?.id === 'foxy' ? 1.35 : 1) * econ;
 
     body.innerHTML = `
       <div class="card">
@@ -2169,14 +2211,14 @@ class FairCoinSlotsApp {
           <h2>💥 Attack Cannon vs ${this.state.rivalTargetName}</h2>
           ${this.state.revengeReady ? `<span class="vip-price-tag" style="background:#ff5d8f;color:#fff;">⚡ 2x REVENGE!</span>` : ''}
         </div>
-        <p>Fire your cannon at a rival building! Smash unshielded buildings for huge loot${raidMult > 1 ? ` (<b style="color:#06d6a0;">${raidMult.toFixed(2)}x Boost active!</b>)` : ''}.</p>
+        <p>Fire your cannon at a rival building! Shield defense at World ${def.level}: <b>${Math.round(def.raidShieldChance * 100)}%</b>.</p>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
           <button class="action-btn ${this.state.revengeReady ? 'pink' : ''}" data-cannon="Tower 🏰">🏰 Tower</button>
           <button class="action-btn ${this.state.revengeReady ? 'pink' : 'secondary'}" data-cannon="Vault 🏦">🏦 Vault</button>
           <button class="action-btn ${this.state.revengeReady ? 'pink' : 'green'}" data-cannon="Statues 🗿">🗿 Statue</button>
         </div>
         <div style="font-size:11px;color:#c7b8e8;text-align:center;">
-          ${this.state.revengeReady ? '⚡ Payback mode! Next shot guarantees +2x SMASH!' : cannonFree ? 'Free attack when low on coins!' : `Shot cost: 🪙 ${formatCoins(CANNON_COST)}`}
+          ${this.state.revengeReady ? '⚡ Payback mode! Next shot guarantees +2x SMASH!' : cannonFree ? 'Free attack when low on coins!' : `Shot cost: 🪙 ${formatCoins(scaledCannonCost)}`}
         </div>
       </div>
 
@@ -2192,43 +2234,23 @@ class FairCoinSlotsApp {
             )
             .join('')}
         </div>
-        ${this.raidDoneBoard ? `<button class="action-btn" id="btn-next-raid">${raidFree ? 'Find Free Rival' : `Next Rival (🪙 ${formatCoins(RAID_COST)})`}</button>` : ''}
+        ${this.raidDoneBoard ? `<button class="action-btn" id="btn-next-raid">${raidFree ? 'Find Free Rival' : `Next Rival (🪙 ${formatCoins(scaledRaidCost)})`}</button>` : ''}
       </div>
 
-      <div class="card">
-        <h2>🏘️ My Village (Lvl ${kingdomLvl} • ${mult}x Win)</h2>
-        <p>Upgrade buildings to boost your permanent multipliers.</p>
-        ${KINGDOM_BUILDINGS.map((b) => {
-          const lvl = this.state.buildings[b.id] ?? 1;
-          const isMax = lvl >= b.maxLevel;
-          const cost = getBuildingUpgradeCost(b.baseCost, lvl);
-          const canAfford = this.state.coins >= cost;
-          return `
-            <div class="building-row">
-              <div class="building-icon">${b.emoji}</div>
-              <div class="building-info">
-                <strong>${b.name} (Lvl ${lvl}/${b.maxLevel})</strong>
-                <small>${b.description}</small>
-              </div>
-              <button class="action-btn ${canAfford && !isMax ? '' : 'secondary'}" data-build="${b.id}" ${isMax || !canAfford ? 'disabled' : ''}>
-                ${isMax ? 'MAX' : `🪙 ${formatCoins(cost)}`}
-              </button>
-            </div>
-          `;
-        }).join('')}
-      </div>
+      ${this.renderProgressiveVillageCardHtml()}
     `;
 
     body.querySelectorAll<HTMLButtonElement>('[data-cannon]').forEach((b) => {
       b.addEventListener('click', () => {
         const target = b.dataset.cannon!;
-        if (this.state.coins >= CANNON_COST) {
-          this.state.coins -= CANNON_COST;
+        if (this.state.coins >= scaledCannonCost) {
+          this.state.coins -= scaledCannonCost;
         }
         incrementQuest(this.state, 'arcade', 1);
+        addClubActivityPoints(this.state, 18);
         const isRevenge = this.state.revengeReady;
         this.state.revengeReady = false;
-        const shielded = !isRevenge && Math.random() < 0.35;
+        const shielded = !isRevenge && Math.random() < def.raidShieldChance;
         const baseLoot = shielded ? 22_000_000 : isRevenge ? 130_000_000 : 75_000_000;
         const loot = Math.round(baseLoot * raidMult);
 
@@ -2262,6 +2284,7 @@ class FairCoinSlotsApp {
         this.state.totalWon += loot;
         this.state.shields = Math.min(3, this.state.shields + (Math.random() < 0.35 ? 1 : 0));
         incrementQuest(this.state, 'arcade', 1);
+        addClubActivityPoints(this.state, 15);
         if (this.raidRevealed.filter(Boolean).length >= 3) {
           this.raidDoneBoard = true;
         }
@@ -2275,8 +2298,8 @@ class FairCoinSlotsApp {
     });
 
     body.querySelector('#btn-next-raid')?.addEventListener('click', () => {
-      if (this.state.coins >= RAID_COST) {
-        this.state.coins -= RAID_COST;
+      if (this.state.coins >= scaledRaidCost) {
+        this.state.coins -= scaledRaidCost;
         saveGameState(this.state);
       }
       this.resetRaidBoard();
@@ -2285,25 +2308,668 @@ class FairCoinSlotsApp {
       this.renderArcadeTab();
     });
 
-    body.querySelectorAll<HTMLButtonElement>('[data-build]').forEach((btn) => {
+    this.bindProgressiveVillageEvents(body);
+  }
+
+  private renderProgressiveVillageCardHtml(): string {
+    const def = getVillageDef(this.state.villageLevel);
+    const stars = getVillageStarsCount(this.state.villageStars);
+    const mult = getTotalMultiplier(this.state);
+    const pct = Math.round((stars / STARS_PER_VILLAGE) * 100);
+    const allBuilt = stars >= STARS_PER_VILLAGE;
+
+    return `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+          <h2>${def.biome.emoji} World ${def.level}/${TOTAL_WORLD_LEVELS}+: ${def.title}</h2>
+          <span class="vip-price-tag" style="background:${def.difficultyColor};color:#120826;">
+            ${def.isBossLevel ? '⚔️ BOSS • ' : ''}${def.difficultyLabel}
+          </span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#c7b8e8;font-weight:700;">
+          <span>Stars: <b style="color:#ffd166;">${stars}/${STARS_PER_VILLAGE} ★</b> • Win Mult: <b style="color:#06d6a0;">${mult}x</b></span>
+          <span>Difficulty: <b style="color:${def.difficultyColor};">${def.difficultyFactor}x Harder</b></span>
+        </div>
+        <div class="vip-progress-track">
+          <div class="vip-progress-fill" style="width:${pct}%;"></div>
+        </div>
+        <canvas class="village-panorama" id="village-panorama-canvas" width="440" height="165"></canvas>
+        ${
+          allBuilt
+            ? `
+          <div style="background:rgba(6,214,160,0.16);border:1.5px solid #06d6a0;border-radius:12px;padding:10px;text-align:center;">
+            <div style="font-size:13px;font-weight:900;color:#06d6a0;">🎉 World ${def.level} Ready to Complete!</div>
+            <div style="font-size:11px;color:#fff8f0;margin:4px 0 8px;">
+              Reward: <b>🪙 +${formatCoins(def.completionCoins)}</b>, <b>🎡 +${def.completionSpins} Spins</b>, <b>🎁 +${def.completionChests} Chests</b>${def.completionJoker ? ' & <b>🃏 +1 Joker</b>' : ''}
+            </div>
+            <button class="action-btn green" id="btn-complete-world">🚀 Advance to World ${def.level + 1}!</button>
+          </div>
+        `
+            : ''
+        }
+        ${def.buildings
+          .map((b, idx) => {
+            const curStar = this.state.villageStars[idx] ?? 0;
+            const isMax = curStar >= STARS_PER_BUILDING;
+            const cost = getVillageBuildingUpgradeCost(def.level, idx, curStar);
+            const canAfford = this.state.coins >= cost;
+            const pips = Array.from(
+              { length: STARS_PER_BUILDING },
+              (_, sIdx) => `<span class="star-pip ${sIdx < curStar ? 'filled' : 'empty'}">★</span>`
+            ).join('');
+            return `
+              <div class="building-row">
+                <div class="building-icon">${b.emoji}</div>
+                <div class="building-info">
+                  <strong>${b.name} (${curStar}/${STARS_PER_BUILDING}★)</strong>
+                  <div class="star-pip-row">${pips}</div>
+                </div>
+                <button class="action-btn ${canAfford && !isMax ? '' : 'secondary'}" data-world-build="${idx}" ${isMax || !canAfford ? 'disabled' : ''}>
+                  ${isMax ? '5★ MAX' : `🪙 ${formatCoins(cost)}`}
+                </button>
+              </div>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+  }
+
+  private bindProgressiveVillageEvents(container: HTMLElement): void {
+    const canvas = container.querySelector<HTMLCanvasElement>('#village-panorama-canvas');
+    if (canvas) {
+      const petEmoji = PET_CATALOG.find((p) => p.id === this.state.activePetId)?.emoji ?? '🦊';
+      drawVillagePanoramaCanvas(canvas, this.state.villageLevel, this.state.villageStars, this.state.shields, petEmoji);
+    }
+
+    container.querySelectorAll<HTMLButtonElement>('[data-world-build]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const id = btn.dataset.build!;
-        const b = KINGDOM_BUILDINGS.find((x) => x.id === id);
-        if (!b) return;
-        const lvl = this.state.buildings[id] ?? 1;
-        if (lvl >= b.maxLevel) return;
-        const cost = getBuildingUpgradeCost(b.baseCost, lvl);
+        const idx = Number(btn.dataset.worldBuild);
+        if (idx < 0 || idx >= BUILDINGS_PER_VILLAGE) return;
+        const curStar = this.state.villageStars[idx] ?? 0;
+        if (curStar >= STARS_PER_BUILDING) return;
+        const cost = getVillageBuildingUpgradeCost(this.state.villageLevel, idx, curStar);
         if (this.state.coins < cost) return;
+
         this.state.coins -= cost;
-        this.state.buildings[id] = lvl + 1;
+        const nextStars = [...this.state.villageStars];
+        nextStars[idx] = curStar + 1;
+        this.state.villageStars = nextStars;
+        this.state.totalStarsEarned += 1;
         incrementQuest(this.state, 'upgrades', 1);
-        grantXp(this.state, 90);
+        addClubActivityPoints(this.state, 28);
+        const xpRes = grantXp(this.state, 115 + Math.floor(this.state.villageLevel / 5) * 15);
         saveGameState(this.state);
+
         this.sfx.playUpgrade();
         this.spawnCoinShower(10);
-        this.showToast(`🔨 ${b.name} upgraded to Level ${lvl + 1}! Multiplier: ${getTotalMultiplier(this.state)}x`);
+        const def = getVillageDef(this.state.villageLevel);
+        const bName = def.buildings[idx]?.name ?? 'Building';
+        this.showToast(
+          xpRes.leveledUp
+            ? `🆙 Level ${xpRes.newLevel}! ${bName} → ${curStar + 1}★!`
+            : `🔨 ${bName} upgraded to ${curStar + 1}★! (+28 Club Pts)`
+        );
         this.renderAll();
       });
+    });
+
+    container.querySelector('#btn-complete-world')?.addEventListener('click', () => {
+      const stars = getVillageStarsCount(this.state.villageStars);
+      if (stars < STARS_PER_VILLAGE) return;
+      const def = getVillageDef(this.state.villageLevel);
+
+      this.state.coins += def.completionCoins;
+      this.state.totalWon += def.completionCoins;
+      this.state.wheelSpins += def.completionSpins;
+      this.state.chests += def.completionChests;
+      this.state.gashaponTokens += def.completionTokens;
+      if (def.completionJoker) this.state.jokerCards += 1;
+
+      this.state.villageLevel += 1;
+      this.state.villageStars = Array(BUILDINGS_PER_VILLAGE).fill(0);
+      addClubActivityPoints(this.state, 120);
+      grantXp(this.state, 260);
+
+      // Push celebratory feed entry in Fox Club ("Achterban")
+      const myName = this.state.playerName.trim() || 'Player';
+      this.state.clubFeed = [
+        {
+          id: `clear-${Date.now()}`,
+          memberName: 'Bella Fox',
+          memberEmoji: '🦊',
+          kind: 'cheer' as const,
+          message: `Squad cheers! ${myName} conquered World ${def.level} (${def.title})!`,
+          fulfilled: false,
+        },
+        ...this.state.clubFeed,
+      ].slice(0, 8);
+
+      saveGameState(this.state);
+      this.sfx.playBigWin();
+      this.spawnCoinShower(28);
+      this.spawnCoinFountain(24);
+      this.spawnConfettiBurst(36);
+      const nextDef = getVillageDef(this.state.villageLevel);
+      this.showToast(`🏆 World ${def.level} cleared! Welcome to World ${nextDef.level}: ${nextDef.title}!`);
+      this.renderAll();
+    });
+  }
+
+  // ===================== 3. FOX WORLD TAB (Club "Achterban", Friends, 550+ Worlds & Map) =====================
+  private renderClubAndWorldTab(): void {
+    const panel = this.root.querySelector<HTMLElement>('#tab-club')!;
+    const readyGifts = this.state.friends.filter((f) => f.giftReady).length;
+    const stars = getVillageStarsCount(this.state.villageStars);
+
+    panel.innerHTML = `
+      <div class="subtab-strip">
+        <button class="subtab-btn ${this.clubSub === 'club' ? 'active' : ''}" data-clubsub="club">🦊 Fox Club</button>
+        <button class="subtab-btn ${this.clubSub === 'friends' ? 'active' : ''}" data-clubsub="friends">👥 Friends${readyGifts > 0 ? ` (${readyGifts}🎁)` : ''}</button>
+        <button class="subtab-btn ${this.clubSub === 'village' ? 'active' : ''}" data-clubsub="village">🏘️ Village Lv.${this.state.villageLevel} (${stars}★)</button>
+        <button class="subtab-btn ${this.clubSub === 'map' ? 'active' : ''}" data-clubsub="map">🗺️ ${TOTAL_WORLD_LEVELS}+ Map</button>
+      </div>
+      <div id="club-body" style="display:flex;flex-direction:column;gap:10px;"></div>
+    `;
+
+    panel.querySelectorAll<HTMLButtonElement>('[data-clubsub]').forEach((b) => {
+      b.addEventListener('click', () => {
+        this.clubSub = b.dataset.clubsub as ClubSubTab;
+        this.sfx.playTap();
+        this.renderClubAndWorldTab();
+      });
+    });
+
+    const body = panel.querySelector<HTMLElement>('#club-body')!;
+    if (this.clubSub === 'club') this.renderClubSquadBody(body);
+    else if (this.clubSub === 'friends') this.renderFriendsBody(body);
+    else if (this.clubSub === 'village') {
+      body.innerHTML = this.renderProgressiveVillageCardHtml();
+      this.bindProgressiveVillageEvents(body);
+    } else this.renderWorldMap550Body(body);
+  }
+
+  private renderClubSquadBody(body: HTMLElement): void {
+    const econ = getWorldEconomyMultiplier(this.state.villageLevel);
+    const tpl = CLUB_TEMPLATES.find((c) => c.id === this.state.clubId) ?? CLUB_TEMPLATES[0];
+    const totalClubStars = tpl.baseMembersStars + this.state.clubPoints;
+    const now = Date.now();
+    const spinCd = Math.max(0, 120_000 - (now - this.state.lastSpinRequestAt));
+    const cardCd = Math.max(0, 180_000 - (now - this.state.lastCardRequestAt));
+    const coinCd = Math.max(0, 120_000 - (now - this.state.lastCoinRequestAt));
+    const myName = this.state.playerName.trim() || 'Player';
+
+    const clubWarList = [
+      { name: `${this.state.clubBadge} ${this.state.clubName} (Your Club)`, stars: totalClubStars, me: true },
+      ...RIVAL_CLUBS.map((rc) => ({ name: `${rc.badge} ${rc.name}`, stars: rc.baseStars, me: false })),
+    ].sort((a, b) => b.stars - a.stars);
+
+    body.innerHTML = `
+      <div class="card vip-pass-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <h2>${this.state.clubBadge} ${this.state.clubName}</h2>
+          <button class="icon-btn" id="btn-toggle-club-switch">Switch / Edit</button>
+        </div>
+        <p style="font-size:12px;">${tpl.motto}</p>
+        <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:800;color:#ffd166;">
+          <span>Team Stars: ${totalClubStars.toLocaleString()} ★</span>
+          <span>Your Contribution: +${this.state.myClubContribution} ★</span>
+        </div>
+        <div id="club-switcher-box" style="display:${this.showClubSwitcher ? 'flex' : 'none'};flex-direction:column;gap:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.12);">
+          <div style="display:flex;gap:6px;">
+            <input class="text-input" id="club-name-input" type="text" maxlength="24" value="${this.state.clubName.replace(/"/g, '&quot;')}" placeholder="Custom Club Name" />
+            <button class="action-btn green" id="btn-save-club-name">Rename</button>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${CLUB_TEMPLATES.map(
+              (c) => `
+              <button class="subtab-btn ${this.state.clubId === c.id ? 'active' : ''}" data-joinclub="${c.id}">
+                ${c.badge} ${c.name}
+              </button>
+            `
+            ).join('')}
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>🎁 Co-op Club Chests</h2>
+        <p style="font-size:12px;">Every spin, raid, card donation & village upgrade grows your squad chest!</p>
+        <div class="club-chest-grid">
+          ${CLUB_CHEST_TIERS.map((ch) => {
+            const unlocked = totalClubStars >= ch.targetStars;
+            const claimed = this.state.claimedClubChestTiers.includes(ch.tier);
+            const rewardCoins = Math.round(250_000_000 * ch.rewardCoinsFactor * econ);
+            return `
+              <div class="club-chest-item ${unlocked && !claimed ? 'ready' : ''}">
+                <div style="font-size:24px;">${ch.emoji}</div>
+                <strong style="font-size:12px;">${ch.name}</strong>
+                <small style="color:#ffd166;">${Math.min(totalClubStars, ch.targetStars)}/${ch.targetStars} ★</small>
+                <small style="color:#c7b8e8;font-size:10px;">🪙 ${formatCoins(rewardCoins)} + ${ch.rewardSpins}🎡</small>
+                <button class="action-btn ${claimed ? 'secondary' : unlocked ? 'green' : 'secondary'}" data-clubchest="${ch.tier}" ${!unlocked || claimed ? 'disabled' : ''} style="font-size:11px;padding:6px 8px;">
+                  ${claimed ? 'Claimed ✓' : unlocked ? 'Claim Chest!' : 'Locked'}
+                </button>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🙏 Ask Your Achterban (Squad Help)</h3>
+        <p style="font-size:12px;">Request spins, album cards, or coin boosts directly from your Fox Club!</p>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+          <button class="action-btn green" id="btn-req-spins" ${spinCd > 0 ? 'disabled' : ''} style="font-size:11px;padding:8px 4px;">
+            ${spinCd > 0 ? `⏳ ${this.formatMmSs(spinCd)}` : '🎡 Request Spins'}
+          </button>
+          <button class="action-btn" id="btn-req-card" ${cardCd > 0 ? 'disabled' : ''} style="font-size:11px;padding:8px 4px;">
+            ${cardCd > 0 ? `⏳ ${this.formatMmSs(cardCd)}` : '🃏 Request Card'}
+          </button>
+          <button class="action-btn secondary" id="btn-req-coins" ${coinCd > 0 ? 'disabled' : ''} style="font-size:11px;padding:8px 4px;">
+            ${coinCd > 0 ? `⏳ ${this.formatMmSs(coinCd)}` : '🪙 Ask Coins'}
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>💬 Live Squad Feed & Card Donations</h3>
+        ${this.state.clubFeed
+          .map(
+            (item) => `
+          <div class="club-feed-row">
+            <div style="font-size:24px;">${item.memberEmoji}</div>
+            <div class="building-info">
+              <strong>${item.memberName}</strong>
+              <small>${item.message}${item.cardName ? ` (${item.cardName})` : ''}</small>
+            </div>
+            <button class="action-btn ${item.fulfilled ? 'secondary' : item.kind === 'card' ? '' : 'green'}" data-feedact="${item.id}" ${item.fulfilled ? 'disabled' : ''} style="font-size:11px;padding:6px 9px;">
+              ${item.fulfilled ? 'Done ✓' : item.kind === 'card' ? '🃏 Donate' : item.kind === 'spins' ? '🎁 Send' : item.kind === 'raid_tip' ? '💥 Raid!' : '👏 High-5'}
+            </button>
+          </div>
+        `
+          )
+          .join('')}
+      </div>
+
+      <div class="card">
+        <h3>🏆 Club War Standings</h3>
+        ${clubWarList
+          .map(
+            (cl, idx) => `
+          <div class="building-row" style="${cl.me ? 'border-color:#ffd166;background:rgba(255,209,102,0.14);' : ''}">
+            <div style="font-weight:900;width:24px;">#${idx + 1}</div>
+            <div class="building-info"><strong>${cl.name}</strong></div>
+            <strong style="color:#ffd166;">${cl.stars.toLocaleString()} ★</strong>
+          </div>
+        `
+          )
+          .join('')}
+      </div>
+
+      <div class="card">
+        <h3>👥 Squad Roster (${DEFAULT_SQUAD_MEMBERS.length + 1} Active)</h3>
+        <div class="building-row" style="border-color:#06d6a0;background:rgba(6,214,160,0.12);">
+          <div style="font-size:22px;">🌟</div>
+          <div class="building-info">
+            <strong>${myName} (You • Co-Leader)</strong>
+            <small>World Lv.${this.state.villageLevel} • Online Now</small>
+          </div>
+          <strong style="color:#06d6a0;">+${this.state.myClubContribution} ★</strong>
+        </div>
+        ${DEFAULT_SQUAD_MEMBERS.map(
+          (m) => `
+          <div class="building-row">
+            <div style="font-size:22px;">${m.emoji}</div>
+            <div class="building-info">
+              <strong>${m.name} (${m.role})</strong>
+              <small>World Lv.${m.villageLevel} • ${m.status}</small>
+            </div>
+            <strong style="color:#ffd166;">+${m.weeklyStars} ★</strong>
+          </div>
+        `
+        ).join('')}
+      </div>
+    `;
+
+    body.querySelector('#btn-toggle-club-switch')?.addEventListener('click', () => {
+      this.showClubSwitcher = !this.showClubSwitcher;
+      this.sfx.playTap();
+      this.renderClubAndWorldTab();
+    });
+
+    body.querySelector('#btn-save-club-name')?.addEventListener('click', () => {
+      const inp = body.querySelector<HTMLInputElement>('#club-name-input');
+      const next = inp?.value.trim();
+      if (!next) return;
+      this.state.clubName = next;
+      this.showClubSwitcher = false;
+      saveGameState(this.state);
+      this.sfx.playTap();
+      this.showToast(`🦊 Club renamed to "${next}"!`);
+      this.renderClubAndWorldTab();
+    });
+
+    body.querySelectorAll<HTMLButtonElement>('[data-joinclub]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const picked = CLUB_TEMPLATES.find((x) => x.id === b.dataset.joinclub);
+        if (!picked) return;
+        this.state.clubId = picked.id;
+        this.state.clubName = picked.name;
+        this.state.clubBadge = picked.badge;
+        this.showClubSwitcher = false;
+        saveGameState(this.state);
+        this.sfx.playBigWin();
+        this.showToast(`${picked.badge} Joined ${picked.name}!`);
+        this.renderClubAndWorldTab();
+      });
+    });
+
+    body.querySelectorAll<HTMLButtonElement>('[data-clubchest]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const tier = Number(b.dataset.clubchest);
+        const ch = CLUB_CHEST_TIERS.find((x) => x.tier === tier);
+        if (!ch || totalClubStars < ch.targetStars || this.state.claimedClubChestTiers.includes(tier)) return;
+        const coins = Math.round(250_000_000 * ch.rewardCoinsFactor * econ);
+        this.state.claimedClubChestTiers.push(tier);
+        this.state.coins += coins;
+        this.state.totalWon += coins;
+        this.state.wheelSpins += ch.rewardSpins;
+        this.state.chests += ch.rewardChests;
+        this.state.gashaponTokens += ch.rewardTokens;
+        saveGameState(this.state);
+        this.sfx.playBigWin();
+        this.spawnCoinShower(22);
+        this.spawnConfettiBurst(28);
+        this.showToast(`${ch.emoji} ${ch.name} opened! +${formatCoins(coins)} & +${ch.rewardSpins} Spins!`);
+        this.renderAll();
+      });
+    });
+
+    body.querySelector('#btn-req-spins')?.addEventListener('click', () => {
+      if (Date.now() - this.state.lastSpinRequestAt < 120_000) return;
+      const gain = 18 + Math.floor(Math.random() * 16);
+      this.state.lastSpinRequestAt = Date.now();
+      this.state.wheelSpins += gain;
+      addClubActivityPoints(this.state, 20);
+      saveGameState(this.state);
+      this.sfx.playBigWin();
+      this.spawnConfettiBurst(16);
+      this.showToast(`🦊 Squad sent you +${gain} Wheel Spins!`);
+      this.renderClubAndWorldTab();
+    });
+
+    body.querySelector('#btn-req-card')?.addEventListener('click', () => {
+      if (Date.now() - this.state.lastCardRequestAt < 180_000) return;
+      this.state.lastCardRequestAt = Date.now();
+      const missing = CARDS.filter((c) => !this.state.cards[c.id]);
+      if (missing.length > 0) {
+        const picked = missing[Math.floor(Math.random() * missing.length)];
+        this.state.cards[picked.id] = (this.state.cards[picked.id] ?? 0) + 1;
+        this.showToast(`🃏 Bella Fox gifted missing card: ${picked.emoji} ${picked.name}!`);
+      } else {
+        this.state.duplicateStars += 15;
+        this.showToast('⭐ Album full! Squad sent +15 Duplicate Stars!');
+      }
+      addClubActivityPoints(this.state, 25);
+      saveGameState(this.state);
+      this.sfx.playBigWin();
+      this.renderClubAndWorldTab();
+    });
+
+    body.querySelector('#btn-req-coins')?.addEventListener('click', () => {
+      if (Date.now() - this.state.lastCoinRequestAt < 120_000) return;
+      const giftCoins = Math.round(140_000_000 * econ);
+      this.state.lastCoinRequestAt = Date.now();
+      this.state.coins += giftCoins;
+      this.state.totalWon += giftCoins;
+      addClubActivityPoints(this.state, 20);
+      saveGameState(this.state);
+      this.sfx.playBigWin();
+      this.spawnCoinShower(14);
+      this.showToast(`🪙 Squad pooled +${formatCoins(giftCoins)} Coins for you!`);
+      this.renderAll();
+    });
+
+    body.querySelectorAll<HTMLButtonElement>('[data-feedact]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const item = this.state.clubFeed.find((x) => x.id === b.dataset.feedact);
+        if (!item || item.fulfilled) return;
+        item.fulfilled = true;
+        if (item.kind === 'raid_tip') {
+          this.arcadeSub = 'village';
+          this.switchTab('arcade');
+          this.showToast('💥 Jump into Attack Cannon & Treasure Raid!');
+          saveGameState(this.state);
+          return;
+        }
+        const coinBonus = Math.round((item.kind === 'card' ? 80_000_000 : 45_000_000) * econ);
+        this.state.coins += coinBonus;
+        if (item.kind === 'card') this.state.duplicateStars += 15;
+        addClubActivityPoints(this.state, item.kind === 'card' ? 45 : 30);
+        saveGameState(this.state);
+        this.sfx.playCoin();
+        this.spawnCoinShower(10);
+        this.showToast(
+          item.kind === 'card'
+            ? `🃏 Donated card to ${item.memberName}! +15⭐ & +45 Club Pts!`
+            : `🎁 Helped ${item.memberName}! +${formatCoins(coinBonus)} & +30 Club Pts!`
+        );
+        this.renderAll();
+      });
+    });
+  }
+
+  private renderFriendsBody(body: HTMLElement): void {
+    const econ = getWorldEconomyMultiplier(this.state.villageLevel);
+    body.innerHTML = `
+      <div class="card vip-pass-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <h2>🔗 Invite Friends & Achterban</h2>
+          <span class="vip-price-tag">${this.state.friendInviteCode}</span>
+        </div>
+        <p style="font-size:12px;">Collect daily spin gifts, trade cards, and pull friendly prank raids on friends!</p>
+        <div style="display:flex;gap:8px;">
+          <button class="action-btn green" id="btn-copy-invite" style="flex:1;">📋 Copy Invite Code</button>
+          <button class="action-btn secondary" id="btn-add-fox-friend" style="flex:1;">➕ Find New Friend</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🦊 Friends & Supporters (${this.state.friends.length})</h3>
+        ${this.state.friends
+          .map(
+            (f) => `
+          <div class="building-row">
+            <div style="font-size:26px;">${f.emoji}</div>
+            <div class="building-info">
+              <strong>${f.name}</strong>
+              <small>World Lv.${f.villageLevel} • ${f.giftReady ? '🎁 Gift Ready!' : 'Active Today'}</small>
+            </div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
+              ${f.giftReady ? `<button class="action-btn green" data-fcollect="${f.id}" style="font-size:11px;padding:6px 8px;">🎁 Collect</button>` : ''}
+              <button class="action-btn" data-fsend="${f.id}" ${f.sentToday ? 'disabled' : ''} style="font-size:11px;padding:6px 8px;">${f.sentToday ? 'Sent ✓' : '🎡 Send'}</button>
+              <button class="action-btn pink" data-fprank="${f.id}" ${f.prankedToday ? 'disabled' : ''} style="font-size:11px;padding:6px 8px;">${f.prankedToday ? 'Raided' : '💥 Prank'}</button>
+            </div>
+          </div>
+        `
+          )
+          .join('')}
+      </div>
+    `;
+
+    body.querySelector('#btn-copy-invite')?.addEventListener('click', () => {
+      try {
+        void navigator.clipboard?.writeText(this.state.friendInviteCode);
+      } catch {
+        // Ignore clipboard errors in non-HTTPS contexts
+      }
+      this.sfx.playTap();
+      this.showToast(`📋 Invite code ${this.state.friendInviteCode} copied!`);
+    });
+
+    body.querySelector('#btn-add-fox-friend')?.addEventListener('click', () => {
+      const existingNames = new Set(this.state.friends.map((x) => x.name));
+      const candidate = EXTRA_FRIEND_POOL.find((p) => !existingNames.has(p.name));
+      if (!candidate) {
+        this.state.friends.forEach((f) => {
+          f.giftReady = true;
+          f.sentToday = false;
+          f.prankedToday = false;
+        });
+        saveGameState(this.state);
+        this.sfx.playBigWin();
+        this.showToast('🔄 Refreshed friend gifts across your Fox Squad!');
+        this.renderClubAndWorldTab();
+        return;
+      }
+      this.state.friends.push({
+        id: `fr-${Date.now()}`,
+        name: candidate.name,
+        emoji: candidate.emoji,
+        villageLevel: candidate.villageLevel,
+        giftReady: true,
+        sentToday: false,
+        prankedToday: false,
+      });
+      saveGameState(this.state);
+      this.sfx.playBigWin();
+      this.showToast(`${candidate.emoji} ${candidate.name} joined your friends list with a Gift!`);
+      this.renderClubAndWorldTab();
+    });
+
+    body.querySelectorAll<HTMLButtonElement>('[data-fcollect]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const fr = this.state.friends.find((x) => x.id === b.dataset.fcollect);
+        if (!fr || !fr.giftReady) return;
+        fr.giftReady = false;
+        const coins = Math.round(55_000_000 * econ);
+        this.state.coins += coins;
+        this.state.totalWon += coins;
+        this.state.wheelSpins += 8;
+        addClubActivityPoints(this.state, 15);
+        saveGameState(this.state);
+        this.sfx.playBigWin();
+        this.spawnCoinShower(12);
+        this.showToast(`🎁 Gift from ${fr.name}: +${formatCoins(coins)} Coins & +8 Spins!`);
+        this.renderAll();
+      });
+    });
+
+    body.querySelectorAll<HTMLButtonElement>('[data-fsend]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const fr = this.state.friends.find((x) => x.id === b.dataset.fsend);
+        if (!fr || fr.sentToday) return;
+        fr.sentToday = true;
+        const bonus = Math.round(35_000_000 * econ);
+        this.state.coins += bonus;
+        addClubActivityPoints(this.state, 20);
+        saveGameState(this.state);
+        this.sfx.playCoin();
+        this.showToast(`🎡 Sent Spins to ${fr.name}! Thank-you bonus: +${formatCoins(bonus)} & +20 Club Pts!`);
+        this.renderAll();
+      });
+    });
+
+    body.querySelectorAll<HTMLButtonElement>('[data-fprank]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const fr = this.state.friends.find((x) => x.id === b.dataset.fprank);
+        if (!fr || fr.prankedToday) return;
+        fr.prankedToday = true;
+        const loot = Math.round(95_000_000 * econ);
+        this.state.coins += loot;
+        this.state.totalWon += loot;
+        addClubActivityPoints(this.state, 25);
+        saveGameState(this.state);
+        this.sfx.playBigWin();
+        this.spawnConfettiBurst(18);
+        this.showToast(`💥 Prank Raided ${fr.name}'s World Lv.${fr.villageLevel}! +${formatCoins(loot)} Coins!`);
+        this.renderAll();
+      });
+    });
+  }
+
+  private renderWorldMap550Body(body: HTMLElement): void {
+    const ranges = [
+      { label: '1–50 Rookie', start: 1, end: 50 },
+      { label: '51–150 Veteran', start: 51, end: 150 },
+      { label: '151–250 Master', start: 151, end: 250 },
+      { label: '251–400 Grand', start: 251, end: 400 },
+      { label: '401–500 Mythic', start: 401, end: 500 },
+      { label: '501–550+ Apex', start: 501, end: TOTAL_WORLD_LEVELS },
+    ];
+    const activeRange = ranges[this.mapRangeIdx] ?? ranges[0];
+    const curLvl = this.state.villageLevel;
+    const curStars = getVillageStarsCount(this.state.villageStars);
+    const curDiff = getDifficultyMeta(curLvl);
+
+    const rowsHtml: string[] = [];
+    for (let lv = activeRange.start; lv <= activeRange.end; lv++) {
+      const def = getVillageDef(lv);
+      const isCurrent = lv === curLvl;
+      const isCompleted = lv < curLvl;
+      const statusText = isCurrent
+        ? `ACTIVE (${curStars}/${STARS_PER_VILLAGE}★)`
+        : isCompleted
+          ? 'CLEARED ✓'
+          : `LOCKED 🔒`;
+      rowsHtml.push(`
+        <div class="world-map-row ${isCurrent ? 'current' : isCompleted ? 'completed' : ''}">
+          <div style="font-size:24px;width:30px;text-align:center;">${def.biome.emoji}</div>
+          <div class="building-info">
+            <strong>Lv.${lv} • ${def.title}${def.isBossLevel ? ' ⚔️' : ''}</strong>
+            <small>${def.difficultyFactor}x Harder • Clear: 🪙 ${formatCoins(def.completionCoins)} + ${def.completionSpins}🎡</small>
+          </div>
+          <span class="vip-price-tag" style="font-size:10px;background:${isCurrent ? '#ffd166' : isCompleted ? '#06d6a0' : 'rgba(255,255,255,0.14)'};color:${isCurrent || isCompleted ? '#120826' : '#c7b8e8'};">
+            ${statusText}
+          </span>
+        </div>
+      `);
+    }
+
+    body.innerHTML = `
+      <div class="card vip-pass-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+          <h2>🗺️ ${TOTAL_WORLD_LEVELS}+ Progressive Worlds</h2>
+          <span class="vip-price-tag" style="background:${curDiff.color};color:#120826;">World ${curLvl} / ${TOTAL_WORLD_LEVELS}+</span>
+        </div>
+        <p style="font-size:12px;">
+          Complete all <b>5 buildings (25★)</b> per village to unlock the next World. Every tier raises upgrade costs, Boss gates (every 10th level), and Rival Shield defenses!
+        </p>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="action-btn green" id="btn-jump-cur-world" style="flex:1;">🏘️ Build World ${curLvl} (${curStars}/25★)</button>
+        </div>
+      </div>
+
+      <div class="subtab-strip">
+        ${ranges
+          .map(
+            (r, idx) => `
+          <button class="subtab-btn ${this.mapRangeIdx === idx ? 'active' : ''}" data-maprange="${idx}">
+            ${r.label}
+          </button>
+        `
+          )
+          .join('')}
+      </div>
+
+      <div class="card" style="gap:6px;">
+        <h3>Worlds ${activeRange.start} – ${activeRange.end}</h3>
+        ${rowsHtml.join('')}
+      </div>
+    `;
+
+    body.querySelectorAll<HTMLButtonElement>('[data-maprange]').forEach((b) => {
+      b.addEventListener('click', () => {
+        this.mapRangeIdx = Number(b.dataset.maprange);
+        this.sfx.playTap();
+        this.renderClubAndWorldTab();
+      });
+    });
+
+    body.querySelector('#btn-jump-cur-world')?.addEventListener('click', () => {
+      this.clubSub = 'village';
+      this.sfx.playTap();
+      this.renderClubAndWorldTab();
     });
   }
 
@@ -4025,7 +4691,8 @@ class FairCoinSlotsApp {
   }
 
   private claimRescueBonus(): void {
-    const bonus = 50_000_000;
+    const econ = getWorldEconomyMultiplier(this.state.villageLevel);
+    const bonus = Math.round(50_000_000 * econ);
     this.state.coins += bonus;
     this.state.rescueCount += 1;
     saveGameState(this.state);
