@@ -2179,3 +2179,54 @@ body {
   border-color: rgba(148, 163, 184, 0.35);
 }
 
+/* 23-Animal Responsive Selector Grid in Mascot Style Studio */
+.species-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.species-pick-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 5px 6px;
+  border-radius: 9px;
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  background: rgba(15, 23, 42, 0.65);
+  color: #e2e8f0;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s, background 0.12s;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.species-pick-btn:hover {
+  border-color: rgba(255, 209, 102, 0.55);
+  background: rgba(30, 41, 59, 0.85);
+}
+
+.species-pick-btn.active {
+  background: linear-gradient(135deg, rgba(255, 159, 28, 0.32), rgba(255, 93, 143, 0.32));
+  border-color: #ffd166;
+  color: #fff;
+  box-shadow: 0 0 10px rgba(255, 209, 102, 0.32);
+}
+
+.species-pick-emoji {
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.species-pick-name {
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+

@@ -62,10 +62,43 @@ export interface WheelSlice {
   value: number;
 }
 
-export type CharacterSpecies = 'piggy' | 'cat' | 'panda' | 'fox' | 'robot' | 'dragon';
+export type CharacterSpecies =
+  | 'lion'
+  | 'dragon'
+  | 'piggy'
+  | 'cat'
+  | 'dog'
+  | 'panda'
+  | 'fox'
+  | 'bunny'
+  | 'tiger'
+  | 'bear'
+  | 'koala'
+  | 'monkey'
+  | 'frog'
+  | 'penguin'
+  | 'owl'
+  | 'unicorn'
+  | 'wolf'
+  | 'bull'
+  | 'shark'
+  | 'croc'
+  | 'hippo'
+  | 'redpanda'
+  | 'robot';
 export type CharacterExpression = 'happy' | 'wink' | 'cool' | 'rich';
 export type CharacterBackdrop = 'studio' | 'gold' | 'cyber' | 'space';
 export type ShopCategory = 'hat' | 'eyewear' | 'outfit' | 'prop' | 'aura';
+
+export interface CharacterSpeciesDef {
+  id: CharacterSpecies;
+  name: string;
+  emoji: string;
+  naturalPrimary: string;
+  naturalSecondary: string;
+  naturalOutline: string;
+  accentColor: string;
+}
 
 export interface CharacterColorPalette {
   id: string;
@@ -324,13 +357,30 @@ export const SLOT_MACHINES: SlotMachineTheme[] = [
   },
 ];
 
-export const CHARACTER_SPECIES_LIST: { id: CharacterSpecies; name: string; emoji: string }[] = [
-  { id: 'piggy', name: 'Piggy', emoji: '🐷' },
-  { id: 'cat', name: 'Kitty', emoji: '🐱' },
-  { id: 'panda', name: 'Panda', emoji: '🐼' },
-  { id: 'fox', name: 'Lion', emoji: '🦁' },
-  { id: 'robot', name: 'Robo', emoji: '🤖' },
-  { id: 'dragon', name: 'Dragon', emoji: '🐲' },
+export const CHARACTER_SPECIES_LIST: CharacterSpeciesDef[] = [
+  { id: 'lion', name: 'Lion', emoji: '🦁', naturalPrimary: '#f59e0b', naturalSecondary: '#fef3c7', naturalOutline: '#451a03', accentColor: '#92400e' },
+  { id: 'dragon', name: 'Dragon', emoji: '🐲', naturalPrimary: '#10b981', naturalSecondary: '#fde047', naturalOutline: '#064e3b', accentColor: '#ef4444' },
+  { id: 'piggy', name: 'Piggy', emoji: '🐷', naturalPrimary: '#ff8fab', naturalSecondary: '#ffc2d4', naturalOutline: '#5c1432', accentColor: '#f43f5e' },
+  { id: 'cat', name: 'Kitty', emoji: '🐱', naturalPrimary: '#fb923c', naturalSecondary: '#ffedd5', naturalOutline: '#431407', accentColor: '#fb7185' },
+  { id: 'dog', name: 'Puppy', emoji: '🐶', naturalPrimary: '#d97706', naturalSecondary: '#fef3c7', naturalOutline: '#451a03', accentColor: '#78350f' },
+  { id: 'panda', name: 'Panda', emoji: '🐼', naturalPrimary: '#f8fafc', naturalSecondary: '#e2e8f0', naturalOutline: '#0f172a', accentColor: '#1e293b' },
+  { id: 'fox', name: 'Fox', emoji: '🦊', naturalPrimary: '#ea580c', naturalSecondary: '#fff7ed', naturalOutline: '#431407', accentColor: '#1e293b' },
+  { id: 'bunny', name: 'Bunny', emoji: '🐰', naturalPrimary: '#f1f5f9', naturalSecondary: '#fbcfe8', naturalOutline: '#334155', accentColor: '#f472b6' },
+  { id: 'tiger', name: 'Tiger', emoji: '🐯', naturalPrimary: '#f97316', naturalSecondary: '#fff7ed', naturalOutline: '#431407', accentColor: '#18181b' },
+  { id: 'bear', name: 'Grizzly', emoji: '🐻', naturalPrimary: '#92400e', naturalSecondary: '#fde68a', naturalOutline: '#291002', accentColor: '#451a03' },
+  { id: 'koala', name: 'Koala', emoji: '🐨', naturalPrimary: '#94a3b8', naturalSecondary: '#f1f5f9', naturalOutline: '#1e293b', accentColor: '#334155' },
+  { id: 'monkey', name: 'Monkey', emoji: '🐵', naturalPrimary: '#854d0e', naturalSecondary: '#fed7aa', naturalOutline: '#3b1804', accentColor: '#b45309' },
+  { id: 'frog', name: 'Froggy', emoji: '🐸', naturalPrimary: '#22c55e', naturalSecondary: '#bbf7d0', naturalOutline: '#052e16', accentColor: '#f43f5e' },
+  { id: 'penguin', name: 'Penguin', emoji: '🐧', naturalPrimary: '#1e293b', naturalSecondary: '#f8fafc', naturalOutline: '#020617', accentColor: '#f97316' },
+  { id: 'owl', name: 'Owl', emoji: '🦉', naturalPrimary: '#78350f', naturalSecondary: '#fef3c7', naturalOutline: '#271003', accentColor: '#f59e0b' },
+  { id: 'unicorn', name: 'Unicorn', emoji: '🦄', naturalPrimary: '#fdf4ff', naturalSecondary: '#f5d0fe', naturalOutline: '#4a044e', accentColor: '#ec4899' },
+  { id: 'wolf', name: 'Wolf', emoji: '🐺', naturalPrimary: '#64748b', naturalSecondary: '#e2e8f0', naturalOutline: '#0f172a', accentColor: '#334155' },
+  { id: 'bull', name: 'Bull', emoji: '🐮', naturalPrimary: '#7c2d12', naturalSecondary: '#fed7aa', naturalOutline: '#2a0e03', accentColor: '#facc15' },
+  { id: 'shark', name: 'Shark', emoji: '🦈', naturalPrimary: '#0284c7', naturalSecondary: '#f0f9ff', naturalOutline: '#082f49', accentColor: '#38bdf8' },
+  { id: 'croc', name: 'Croc', emoji: '🐊', naturalPrimary: '#15803d', naturalSecondary: '#dcfce7', naturalOutline: '#052e16', accentColor: '#84cc16' },
+  { id: 'hippo', name: 'Hippo', emoji: '🦛', naturalPrimary: '#8b5cf6', naturalSecondary: '#ddd6fe', naturalOutline: '#2e1065', accentColor: '#c4b5fd' },
+  { id: 'redpanda', name: 'Red Panda', emoji: '🐾', naturalPrimary: '#c2410c', naturalSecondary: '#fff7ed', naturalOutline: '#2a0a02', accentColor: '#18181b' },
+  { id: 'robot', name: 'Mecha Bot', emoji: '🤖', naturalPrimary: '#38bdf8', naturalSecondary: '#e0f2fe', naturalOutline: '#082f49', accentColor: '#facc15' },
 ];
 
 export const CHARACTER_EXPRESSIONS: { id: CharacterExpression; name: string; emoji: string }[] = [
@@ -348,6 +398,7 @@ export const CHARACTER_BACKDROPS: { id: CharacterBackdrop; name: string; emoji: 
 ];
 
 export const CHARACTER_COLORS: CharacterColorPalette[] = [
+  { id: 'natural', name: 'Natural Fur', primary: '#f59e0b', secondary: '#fef3c7', outline: '#451a03' },
   { id: 'pink', name: 'Pink', primary: '#ff8fab', secondary: '#ffc2d4', outline: '#5c1432' },
   { id: 'orange', name: 'Tangerine', primary: '#f97316', secondary: '#fed7aa', outline: '#431407' },
   { id: 'sky', name: 'Sky', primary: '#38bdf8', secondary: '#bae6fd', outline: '#082f49' },
@@ -362,48 +413,95 @@ export const CHARACTER_COLORS: CharacterColorPalette[] = [
   { id: 'emerald', name: 'Emerald', primary: '#10b981', secondary: '#6ee7b7', outline: '#064e3b' },
 ];
 
+export function resolveCharacterPalette(
+  species: CharacterSpecies,
+  colorId: string
+): { primary: string; secondary: string; outline: string; accent: string } {
+  const spDef = CHARACTER_SPECIES_LIST.find((s) => s.id === species) ?? CHARACTER_SPECIES_LIST[0];
+  if (!colorId || colorId === 'natural') {
+    return {
+      primary: spDef.naturalPrimary,
+      secondary: spDef.naturalSecondary,
+      outline: spDef.naturalOutline,
+      accent: spDef.accentColor,
+    };
+  }
+  const col = CHARACTER_COLORS.find((c) => c.id === colorId);
+  if (!col) {
+    return {
+      primary: spDef.naturalPrimary,
+      secondary: spDef.naturalSecondary,
+      outline: spDef.naturalOutline,
+      accent: spDef.accentColor,
+    };
+  }
+  return {
+    primary: col.primary,
+    secondary: col.secondary,
+    outline: col.outline,
+    accent: spDef.accentColor,
+  };
+}
+
 export const SHOP_ITEMS: ShopItem[] = [
-  // Hats (Billions -> Trillions)
-  { id: 'hat_none', category: 'hat', name: 'No Hat', emoji: '🙂', priceCoins: 0, description: 'Clean natural look.' },
-  { id: 'hat_cap', category: 'hat', name: 'Street Cap', emoji: '🧢', priceCoins: 2_500_000_000, description: 'Cool backwards cap.' },
-  { id: 'hat_pirate', category: 'hat', name: 'Pirate Hat', emoji: '🏴‍☠️', priceCoins: 15_000_000_000, description: 'For treasure hunters.' },
-  { id: 'hat_crown', category: 'hat', name: 'Golden Crown', emoji: '👑', priceCoins: 120_000_000_000, description: 'Royal lucky crown.' },
-  { id: 'hat_wizard', category: 'hat', name: 'Wizard Hat', emoji: '🧙', priceCoins: 1_200_000_000_000, description: 'Star-spangled luck hat.' },
-  { id: 'hat_halo', category: 'hat', name: 'Angel Halo', emoji: '😇', priceCoins: 8_500_000_000_000, description: 'Radiant golden ring.' },
-  { id: 'hat_tophat', category: 'hat', name: 'Billionaire Top Hat', emoji: '🎩', priceCoins: 25_000_000_000_000, description: 'Pure high-roller silk.' },
+  // Hats (10 Distinct Visual Headwear Options — Billions -> Trillions)
+  { id: 'hat_none', category: 'hat', name: 'No Hat', emoji: '🙂', priceCoins: 0, description: 'Show off your animal ears & horns.' },
+  { id: 'hat_cap', category: 'hat', name: 'Street Cap', emoji: '🧢', priceCoins: 2_500_000_000, description: 'Cool backwards snapback cap.' },
+  { id: 'hat_headphones', category: 'hat', name: 'Neon DJ Headset', emoji: '🎧', priceCoins: 8_000_000_000, description: 'Glowing over-ear beats headset.' },
+  { id: 'hat_pirate', category: 'hat', name: 'Pirate Captain Hat', emoji: '🏴‍☠️', priceCoins: 15_000_000_000, description: 'Tricorne with skull & red plume.' },
+  { id: 'hat_cowboy', category: 'hat', name: 'Sheriff Cowboy Hat', emoji: '🤠', priceCoins: 45_000_000_000, description: 'Wide leather brim & gold star.' },
+  { id: 'hat_crown', category: 'hat', name: 'Golden Crown', emoji: '👑', priceCoins: 120_000_000_000, description: '5-point royal jeweled crown.' },
+  { id: 'hat_viking', category: 'hat', name: 'Viking War Helm', emoji: '⚔️', priceCoins: 450_000_000_000, description: 'Iron & gold helm with ivory horns.' },
+  { id: 'hat_wizard', category: 'hat', name: 'Archmage Hat', emoji: '🧙', priceCoins: 1_200_000_000_000, description: 'Star-spangled mystic cone hat.' },
+  { id: 'hat_halo', category: 'hat', name: 'Celestial Halo', emoji: '😇', priceCoins: 8_500_000_000_000, description: 'Floating radiant golden ring.' },
+  { id: 'hat_tophat', category: 'hat', name: 'Billionaire Top Hat', emoji: '🎩', priceCoins: 25_000_000_000_000, description: 'High-roller silk hat & diamond band.' },
 
-  // Eyewear (Billions -> Trillions)
-  { id: 'eye_none', category: 'eyewear', name: 'Classic Eyes', emoji: '👀', priceCoins: 0, description: 'Bright cartoon eyes.' },
-  { id: 'eye_shades', category: 'eyewear', name: 'Vegas Shades', emoji: '🕶️', priceCoins: 3_500_000_000, description: 'Sleek dark sunglasses.' },
-  { id: 'eye_hearts', category: 'eyewear', name: 'Heart Glasses', emoji: '😍', priceCoins: 25_000_000_000, description: 'Starry pink hearts.' },
-  { id: 'eye_monocle', category: 'eyewear', name: 'Gold Monocle', emoji: '🧐', priceCoins: 250_000_000_000, description: 'Classy tycoon monocle.' },
-  { id: 'eye_visor', category: 'eyewear', name: 'Cyber Visor', emoji: '🥽', priceCoins: 2_500_000_000_000, description: 'Neon futuristic visor.' },
-  { id: 'eye_star', category: 'eyewear', name: 'Superstar Shades', emoji: '🤩', priceCoins: 12_000_000_000_000, description: '24K golden star frames.' },
+  // Eyewear (9 Distinct Visual Face & Eye Options — Billions -> Trillions)
+  { id: 'eye_none', category: 'eyewear', name: 'Natural Eyes', emoji: '👀', priceCoins: 0, description: 'Expressive cartoon eyes.' },
+  { id: 'eye_shades', category: 'eyewear', name: 'Vegas Aviators', emoji: '🕶️', priceCoins: 3_500_000_000, description: 'Sleek dark sunglasses with gold rim.' },
+  { id: 'eye_nerd', category: 'eyewear', name: 'Professor Specs', emoji: '🤓', priceCoins: 10_000_000_000, description: 'Smart round frames with lens glint.' },
+  { id: 'eye_hearts', category: 'eyewear', name: 'Ruby Heart Shades', emoji: '😍', priceCoins: 25_000_000_000, description: 'Glossy pink & ruby heart frames.' },
+  { id: 'eye_eyepatch', category: 'eyewear', name: 'Raider Eyepatch', emoji: '🏴‍☠️', priceCoins: 80_000_000_000, description: 'Swashbuckler eyepatch with gold strap.' },
+  { id: 'eye_monocle', category: 'eyewear', name: 'Tycoon Monocle', emoji: '🧐', priceCoins: 250_000_000_000, description: '24K gold lens & hanging chain.' },
+  { id: 'eye_mask', category: 'eyewear', name: 'Phantom Hero Mask', emoji: '🎭', priceCoins: 900_000_000_000, description: 'Mystery domino mask across the eyes.' },
+  { id: 'eye_visor', category: 'eyewear', name: 'Cyber Laser Visor', emoji: '🥽', priceCoins: 2_500_000_000_000, description: 'Glowing neon HUD wrap visor.' },
+  { id: 'eye_star', category: 'eyewear', name: 'Superstar 24K Shades', emoji: '🤩', priceCoins: 12_000_000_000_000, description: 'Oversized golden star frames.' },
 
-  // Outfits (Billions -> Trillions)
-  { id: 'out_tee', category: 'outfit', name: 'Classic Tee', emoji: '👕', priceCoins: 0, description: 'Simple and comfy.' },
-  { id: 'out_hoodie', category: 'outfit', name: 'Purple Hoodie', emoji: '🧥', priceCoins: 5_000_000_000, description: 'Cozy spin hoodie.' },
-  { id: 'out_tux', category: 'outfit', name: 'Vegas Tuxedo', emoji: '🤵', priceCoins: 40_000_000_000, description: 'Sharp with red bow tie.' },
-  { id: 'out_royal', category: 'outfit', name: 'Royal Cloak', emoji: '👘', priceCoins: 350_000_000_000, description: 'Velvet red royal robe.' },
-  { id: 'out_space', category: 'outfit', name: 'Spacesuit', emoji: '🧑‍🚀', priceCoins: 3_500_000_000_000, description: 'Ready for liftoff!' },
-  { id: 'out_goldsuit', category: 'outfit', name: '24K Gold Suit', emoji: '✨', priceCoins: 15_000_000_000_000, description: 'Shines like a jackpot.' },
-  { id: 'out_diamond', category: 'outfit', name: 'Diamond Emperor', emoji: '💎', priceCoins: 50_000_000_000_000, description: 'Ultra-rare crystal armor.' },
+  // Outfits (13 Full-Body Visual Outfits with Sleeves, Pants, Capes & Footwear — Billions -> Trillions)
+  { id: 'out_none', category: 'outfit', name: 'Natural Fur (No Outfit)', emoji: '🐾', priceCoins: 0, description: 'Natural animal fur, belly & paws.' },
+  { id: 'out_tee', category: 'outfit', name: 'Star Graphic Tee', emoji: '👕', priceCoins: 0, description: 'Blue star tee, denim jeans & sneakers.' },
+  { id: 'out_hoodie', category: 'outfit', name: 'Streetwear Hoodie', emoji: '🧥', priceCoins: 5_000_000_000, description: 'Purple hoodie, gold cords & joggers.' },
+  { id: 'out_tracksuit', category: 'outfit', name: 'Neon VIP Tracksuit', emoji: '⚡', priceCoins: 18_000_000_000, description: 'Cyan & magenta racing stripe suit.' },
+  { id: 'out_tux', category: 'outfit', name: 'Vegas Gala Tuxedo', emoji: '🤵', priceCoins: 40_000_000_000, description: 'Tailored dinner jacket & red bow tie.' },
+  { id: 'out_pirate', category: 'outfit', name: 'Pirate Captain Coat', emoji: '🏴‍☠️', priceCoins: 120_000_000_000, description: 'Crimson coat, gold epaulets & belt.' },
+  { id: 'out_ninja', category: 'outfit', name: 'Shadow Ninja Gi', emoji: '🥷', priceCoins: 240_000_000_000, description: 'Shinobi armor tunic & crimson sash.' },
+  { id: 'out_royal', category: 'outfit', name: 'Royal King Cloak', emoji: '👘', priceCoins: 350_000_000_000, description: 'Ermine fur mantle & velvet cape.' },
+  { id: 'out_knight', category: 'outfit', name: 'Paladin Plate Armor', emoji: '🛡️', priceCoins: 1_200_000_000_000, description: 'Silver & gold breastplate & greaves.' },
+  { id: 'out_cyber', category: 'outfit', name: 'Cyberpunk Exo-Suit', emoji: '🤖', priceCoins: 2_200_000_000_000, description: 'High-collar neon synthwave armor.' },
+  { id: 'out_space', category: 'outfit', name: 'Astro Spacesuit', emoji: '🧑‍🚀', priceCoins: 3_500_000_000_000, description: 'Pressurized suit, jetpack & moon boots.' },
+  { id: 'out_goldsuit', category: 'outfit', name: '24K Billionaire Suit', emoji: '✨', priceCoins: 15_000_000_000_000, description: 'Solid gold double-breasted tycoon suit.' },
+  { id: 'out_diamond', category: 'outfit', name: 'Diamond Emperor Armor', emoji: '💎', priceCoins: 50_000_000_000_000, description: 'Crystal pauldrons, prism core & cape.' },
 
-  // Props (Billions -> Trillions)
-  { id: 'prop_none', category: 'prop', name: 'Empty Hands', emoji: '✋', priceCoins: 0, description: 'Ready to spin.' },
-  { id: 'prop_coinbag', category: 'prop', name: 'Coin Bag', emoji: '💰', priceCoins: 4_000_000_000, description: 'Stuffed with gold coins.' },
-  { id: 'prop_clover', category: 'prop', name: 'Lucky Clover', emoji: '🍀', priceCoins: 20_000_000_000, description: 'Four-leaf good luck.' },
-  { id: 'prop_mic', category: 'prop', name: 'Show Mic', emoji: '🎤', priceCoins: 150_000_000_000, description: 'Host your own show.' },
-  { id: 'prop_wand', category: 'prop', name: 'Star Wand', emoji: '🪄', priceCoins: 1_800_000_000_000, description: 'Magic jackpot wand.' },
-  { id: 'prop_trophy', category: 'prop', name: 'Gold Trophy', emoji: '🏆', priceCoins: 10_000_000_000_000, description: 'For true champions.' },
-  { id: 'prop_diamond', category: 'prop', name: 'Mega Diamond', emoji: '💎', priceCoins: 35_000_000_000_000, description: 'Carat flex in your paw.' },
+  // Props (10 Held Hand Items — Billions -> Trillions)
+  { id: 'prop_none', category: 'prop', name: 'Empty Hands', emoji: '✋', priceCoins: 0, description: 'Free paws ready for action.' },
+  { id: 'prop_coinbag', category: 'prop', name: 'Overflowing Coin Sack', emoji: '💰', priceCoins: 4_000_000_000, description: 'Heavy sack stuffed with gold.' },
+  { id: 'prop_clover', category: 'prop', name: '4-Leaf Lucky Clover', emoji: '🍀', priceCoins: 20_000_000_000, description: 'Glowing emerald charm.' },
+  { id: 'prop_mic', category: 'prop', name: 'Golden Show Mic', emoji: '🎤', priceCoins: 150_000_000_000, description: 'Host the jackpot stage.' },
+  { id: 'prop_sword', category: 'prop', name: 'Excalibur Royal Blade', emoji: '🗡️', priceCoins: 600_000_000_000, description: 'Gleaming knight broadsword.' },
+  { id: 'prop_wand', category: 'prop', name: 'Starlight Magic Wand', emoji: '🪄', priceCoins: 1_800_000_000_000, description: 'Casts golden star sparks.' },
+  { id: 'prop_guitar', category: 'prop', name: 'Neon Rock Guitar', emoji: '🎸', priceCoins: 4_500_000_000_000, description: 'Electric V-guitar in your paws.' },
+  { id: 'prop_trophy', category: 'prop', name: 'World Champion Cup', emoji: '🏆', priceCoins: 10_000_000_000_000, description: 'Solid gold championship trophy.' },
+  { id: 'prop_scepter', category: 'prop', name: 'Emperor Ruby Scepter', emoji: '👑', priceCoins: 22_000_000_000_000, description: 'Imperial staff topped with a ruby orb.' },
+  { id: 'prop_diamond', category: 'prop', name: 'Mega Carat Diamond', emoji: '💎', priceCoins: 35_000_000_000_000, description: 'Giant floating prism gem.' },
 
-  // Auras (Billions -> Trillions)
-  { id: 'aura_none', category: 'aura', name: 'No Aura', emoji: '⭕', priceCoins: 0, description: 'Clean backdrop.' },
-  { id: 'aura_sparkle', category: 'aura', name: 'Star Glow', emoji: '✨', priceCoins: 10_000_000_000, description: 'Soft golden shimmer.' },
-  { id: 'aura_rainbow', category: 'aura', name: 'Rainbow Ring', emoji: '🌈', priceCoins: 500_000_000_000, description: 'Colorful party glow.' },
-  { id: 'aura_fire', category: 'aura', name: 'Jackpot Flame', emoji: '🔥', priceCoins: 5_000_000_000_000, description: 'Blazing streak aura.' },
-  { id: 'aura_galaxy', category: 'aura', name: 'Cosmic Nebula', emoji: '🌌', priceCoins: 30_000_000_000_000, description: 'Orbiting stardust aura.' },
+  // Auras (7 Full-Body Animated Background Effects — Billions -> Trillions)
+  { id: 'aura_none', category: 'aura', name: 'No Aura', emoji: '⭕', priceCoins: 0, description: 'Clean natural stage.' },
+  { id: 'aura_sparkle', category: 'aura', name: 'Golden Starlight', emoji: '✨', priceCoins: 10_000_000_000, description: 'Twinkling orbiting gold stars.' },
+  { id: 'aura_hearts', category: 'aura', name: 'Love Charm Aura', emoji: '💖', priceCoins: 85_000_000_000, description: 'Floating glowing ruby hearts.' },
+  { id: 'aura_rainbow', category: 'aura', name: 'Prismatic Rainbow Ring', emoji: '🌈', priceCoins: 500_000_000_000, description: '6-color halo & star shimmer.' },
+  { id: 'aura_lightning', category: 'aura', name: 'Thunder Volt Storm', emoji: '⚡', priceCoins: 2_000_000_000_000, description: 'Crackling neon electric arcs.' },
+  { id: 'aura_fire', category: 'aura', name: 'Jackpot Inferno Flame', emoji: '🔥', priceCoins: 5_000_000_000_000, description: 'Blazing animated fire ring.' },
+  { id: 'aura_galaxy', category: 'aura', name: 'Cosmic Nebula Orbit', emoji: '🌌', priceCoins: 30_000_000_000_000, description: 'Orbiting planets & stardust rings.' },
 ];
 
 export const KINGDOM_BUILDINGS: KingdomBuilding[] = [

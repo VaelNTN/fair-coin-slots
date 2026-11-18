@@ -166,8 +166,8 @@ export const DEFAULT_JACKPOTS: Record<JackpotKey, number> = {
 };
 
 export const DEFAULT_CHARACTER: CharacterConfig = {
-  species: 'piggy',
-  colorId: 'pink',
+  species: 'lion',
+  colorId: 'natural',
   hatId: 'hat_none',
   eyewearId: 'eye_none',
   outfitId: 'out_tee',
@@ -192,7 +192,7 @@ export function createInitialState(deviceId = generateFallbackDeviceId()): GameS
     quests[q.id] = { progress: 0, claimed: false };
   });
 
-  const starterOwned = ['hat_none', 'eye_none', 'out_tee', 'prop_none', 'aura_none'];
+  const starterOwned = ['hat_none', 'eye_none', 'out_none', 'out_tee', 'prop_none', 'aura_none'];
   const itemCounts: Record<string, number> = {};
   starterOwned.forEach((id) => {
     itemCounts[id] = 1;

@@ -1,11 +1,10 @@
-import { CHARACTER_COLORS, CharacterSpecies } from '../data/machines';
 import {
   BUILDINGS_PER_VILLAGE,
   getVillageDef,
   STARS_PER_BUILDING,
   VillageBuildingDef,
 } from '../data/worldLevels';
-import { CharacterConfig } from './mascotRenderer';
+import { CharacterConfig, drawFullBodyMascot } from './mascotRenderer';
 
 export interface CityPlotCoord {
   slotIdx: number;
@@ -1547,201 +1546,26 @@ export class CityWorldController {
   }
 
   /**
-   * Renders the player's customized mascot character with animated legs, outfit, hat,
-   * and either a swinging construction hammer OR a curved fishing rod at the pond!
+   * Renders the player's customized full-body mascot character with all 23 species details,
+   * full-body outfits (torso, sleeves, pants, shoes, capes/jetpack), hats, eyewear, props,
+   * animated legs, and either a swinging construction hammer OR a curved fishing rod at the pond!
    */
   private drawCharacterInCity(ctx: CanvasRenderingContext2D): void {
-    const palette = CHARACTER_COLORS.find((c) => c.id === this.character.colorId) ?? CHARACTER_COLORS[0];
     const isRunning = this.charState === 'running';
-    const isHammering = this.charState === 'hammering';
-    const isFishing = this.charState === 'fishing';
-
     const runCycle = isRunning ? this.t * 20 : 0;
-    const bob = isRunning
-      ? Math.abs(Math.sin(runCycle)) * -5
-      : isHammering
-        ? Math.sin(this.hammerPhase * 2) * 2
-        : Math.sin(this.t * 3) * 1.5;
 
     ctx.save();
-    ctx.translate(this.charX, this.charY);
+    ctx.translate(this.charX, this.charY - 16);
+    ctx.scale(this.facing * 0.42, 0.42);
 
-    // Ground shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.38)';
-    ctx.beginPath();
-    ctx.ellipse(0, 9, 14, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.translate(0, bob);
-    ctx.scale(this.facing * 1.22, 1.22);
-
-    // 1. Optional Aura
-    if (this.character.auraId && this.character.auraId !== 'aura_none') {
-      const grad = ctx.createRadialGradient(0, -12, 4, 0, -12, 24);
-      grad.addColorStop(0, 'rgba(255, 209, 102, 0.45)');
-      grad.addColorStop(1, 'rgba(255, 209, 102, 0)');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(0, -12, 24, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // 2. Animated Running Legs
-    const legSwing = isRunning ? Math.sin(runCycle) * 7 : 0;
-    ctx.strokeStyle = palette.outline;
-    ctx.fillStyle = palette.primary;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(-6 - legSwing * 0.6, -2, 5, 9, 2.5);
-    ctx.fill();
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.roundRect(1 + legSwing * 0.6, -2, 5, 9, 2.5);
-    ctx.fill();
-    ctx.stroke();
-
-    // 3. Torso / Equipped Outfit
-    let shirtCol = '#4361ee';
-    const o = this.character.outfitId;
-    if (o === 'out_hoodie') shirtCol = '#7b2cbf';
-    else if (o === 'out_tux') shirtCol = '#1e293b';
-    else if (o === 'out_royal') shirtCol = '#b91c1c';
-    else if (o === 'out_space') shirtCol = '#e2e8f0';
-    else if (o === 'out_goldsuit') shirtCol = '#f59e0b';
-    else if (o === 'out_diamond') shirtCol = '#0284c7';
-
-    ctx.fillStyle = shirtCol;
-    ctx.strokeStyle = palette.outline;
-    ctx.lineWidth = 1.8;
-    ctx.beginPath();
-    ctx.roundRect(-9, -15, 18, 15, 6);
-    ctx.fill();
-    ctx.stroke();
-
-    // 4. Mascot Head & Species Ears
-    this.drawMiniHead(ctx, this.character.species, palette);
-
-    // 5. Equipped Hat
-    const hat = this.character.hatId;
-    if (hat && hat !== 'hat_none') {
-      ctx.save();
-      ctx.scale(this.facing, 1);
-      const hatEmoji =
-        hat === 'hat_crown'
-          ? '👑'
-          : hat === 'hat_pirate'
-            ? '🏴‍☠️'
-            : hat === 'hat_wizard'
-              ? '🧙'
-              : hat === 'hat_halo'
-                ? '😇'
-                : hat === 'hat_tophat'
-                  ? '🎩'
-                  : '🧢';
-      ctx.font = '13px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(hatEmoji, 0, -34);
-      ctx.restore();
-    }
-
-    // 6. Arm + Tool (Fishing Rod when at Pond, Construction Hammer otherwise)
-    ctx.save();
-    ctx.translate(6, -10);
-
-    if (isFishing) {
-      const rodBob = Math.sin(this.t * 3.5) * 0.08;
-      ctx.rotate(-0.15 + rodBob);
-
-      // Paw
-      ctx.fillStyle = palette.primary;
-      ctx.strokeStyle = palette.outline;
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      ctx.arc(4, 0, 3.8, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-
-      // Bamboo / Golden Fishing Rod arching over the pond
-      ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth = 2.2;
-      ctx.beginPath();
-      ctx.moveTo(3, 1);
-      ctx.quadraticCurveTo(11, -10, 18, -14);
-      ctx.stroke();
-    } else {
-      const armAngle = isHammering
-        ? -0.35 + Math.sin(this.hammerPhase) * 1.15
-        : isRunning
-          ? Math.cos(runCycle) * 0.45
-          : 0.15;
-      ctx.rotate(armAngle);
-
-      // Arm & Paw
-      ctx.fillStyle = palette.primary;
-      ctx.strokeStyle = palette.outline;
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      ctx.arc(4, 0, 3.8, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-
-      // Wooden Hammer Handle
-      ctx.fillStyle = '#92400e';
-      ctx.strokeStyle = '#451a03';
-      ctx.lineWidth = 1.3;
-      ctx.beginPath();
-      ctx.roundRect(4, -13, 3.2, 15, 1.5);
-      ctx.fill();
-      ctx.stroke();
-
-      // Heavy Steel & Gold Hammer Head
-      ctx.fillStyle = isHammering ? '#ffd166' : '#cbd5e1';
-      ctx.strokeStyle = '#1e293b';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.roundRect(-1, -17, 13, 6.5, 2);
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    ctx.restore();
-    ctx.restore();
-  }
-
-  private drawMiniHead(
-    ctx: CanvasRenderingContext2D,
-    species: CharacterSpecies,
-    palette: { primary: string; secondary: string; outline: string }
-  ): void {
-    ctx.save();
-    ctx.translate(0, -22);
-
-    ctx.fillStyle = species === 'panda' ? '#1e293b' : palette.primary;
-    ctx.strokeStyle = palette.outline;
-    ctx.lineWidth = 1.6;
-    for (const side of [-1, 1]) {
-      ctx.beginPath();
-      ctx.arc(side * 8, -7, 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = palette.primary;
-    ctx.beginPath();
-    ctx.arc(0, 0, 10.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#0f172a';
-    ctx.beginPath();
-    ctx.arc(-2.5, -2, 1.7, 0, Math.PI * 2);
-    ctx.arc(4.2, -2, 1.7, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = palette.secondary;
-    ctx.beginPath();
-    ctx.ellipse(2, 2, 4, 2.6, 0, 0, Math.PI * 2);
-    ctx.fill();
+    drawFullBodyMascot(ctx, this.character, {
+      time: this.t,
+      mood: this.charState === 'hammering' ? 'spinning' : 'idle',
+      cityAction: this.charState,
+      runCycle,
+      hammerPhase: this.hammerPhase,
+      showGroundShadow: true,
+    });
 
     ctx.restore();
   }

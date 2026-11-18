@@ -3645,18 +3645,19 @@ class FairCoinSlotsApp {
       ${subNavHtml}
       <div class="char-stage" id="char-stage-card">
         <div style="display:flex;justify-content:space-between;align-items:center;width:100%;gap:6px;">
-          <span style="font-size:13px;font-weight:900;color:#ffd166;">🎨 Mascot Style Studio</span>
+          <span style="font-size:13px;font-weight:900;color:#ffd166;">🎨 Full-Body Mascot Studio (${CHARACTER_SPECIES_LIST.length} Animals)</span>
           <div style="display:flex;gap:4px;">
             <button class="subtab-btn" id="btn-char-random" style="padding:4px 8px;font-size:10px;">🎲 Randomize</button>
             <button class="subtab-btn" id="btn-char-reset" style="padding:4px 8px;font-size:10px;">🔄 Reset</button>
           </div>
         </div>
-        <canvas id="preview-char-canvas" width="200" height="200" style="width:146px;height:146px;"></canvas>
+        <canvas id="preview-char-canvas" width="240" height="270" style="width:176px;height:198px;"></canvas>
         <div id="char-tryon-slot" style="width:100%;"></div>
         <div id="char-pose-row" class="subtab-strip" style="justify-content:center;max-width:100%;"></div>
         <input id="char-player-name" class="text-input" type="text" maxlength="20" placeholder="Your player name" value="${this.state.playerName.replace(/"/g, '&quot;')}" style="max-width:240px;text-align:center;" />
         <div id="char-loadout-row" class="loadout-chips"></div>
-        <div id="char-species-row" class="subtab-strip" style="justify-content:center;max-width:100%;"></div>
+        <div style="width:100%;text-align:left;font-size:10px;font-weight:900;color:#93c5fd;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;">🐾 Choose Animal (${CHARACTER_SPECIES_LIST.length} Options)</div>
+        <div id="char-species-row" class="species-picker-grid"></div>
         <div id="char-expression-row" class="subtab-strip" style="justify-content:center;max-width:100%;"></div>
         <div id="char-backdrop-row" class="subtab-strip" style="justify-content:center;max-width:100%;"></div>
         <div id="char-swatch-row" class="swatch-row"></div>
@@ -3664,10 +3665,10 @@ class FairCoinSlotsApp {
 
       <div class="card" id="char-shop-card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
-          <h2>🛍️ Luxury Style Shop</h2>
-          <span class="shop-price-pill trillion">Collect & Stack Duplicates</span>
+          <h2>🛍️ Luxury Style & Outfit Shop</h2>
+          <span class="shop-price-pill trillion">Full-Body Visual Gear</span>
         </div>
-        <p style="font-size:11px;">Tap <b>👁️ Try</b> to preview any item live, or tap <b>+1 Copy</b> to stack duplicate copies in your Collection Vault!</p>
+        <p style="font-size:11px;">Outfits & extras render directly on your full-body mascot in the Studio & City! Tap <b>👁️ Try</b> to preview or <b>+1 Copy</b> to stack duplicates.</p>
         <div class="subtab-strip" id="char-shop-cats">
           ${catLabels.map((cat) => `<button class="subtab-btn" data-shopcat="${cat.id}">${cat.label}</button>`).join('')}
         </div>
@@ -3695,7 +3696,7 @@ class FairCoinSlotsApp {
 
     panel.querySelector('#btn-char-random')?.addEventListener('click', () => {
       const randSp = CHARACTER_SPECIES_LIST[Math.floor(Math.random() * CHARACTER_SPECIES_LIST.length)].id;
-      const randCol = CHARACTER_COLORS[Math.floor(Math.random() * CHARACTER_COLORS.length)].id;
+      const randCol = Math.random() < 0.55 ? 'natural' : CHARACTER_COLORS[Math.floor(Math.random() * CHARACTER_COLORS.length)].id;
       const randExp = CHARACTER_EXPRESSIONS[Math.floor(Math.random() * CHARACTER_EXPRESSIONS.length)].id;
       const randBg = CHARACTER_BACKDROPS[Math.floor(Math.random() * CHARACTER_BACKDROPS.length)].id;
       this.state.character.species = randSp;
@@ -3722,9 +3723,10 @@ class FairCoinSlotsApp {
     });
 
     panel.querySelector('#btn-char-reset')?.addEventListener('click', () => {
+      this.state.character.colorId = 'natural';
       this.state.character.hatId = 'hat_none';
       this.state.character.eyewearId = 'eye_none';
-      this.state.character.outfitId = 'out_tee';
+      this.state.character.outfitId = 'out_none';
       this.state.character.propId = 'prop_none';
       this.state.character.auraId = 'aura_none';
       this.state.character.expression = 'happy';
@@ -3733,7 +3735,7 @@ class FairCoinSlotsApp {
       this.sfx.playTap();
       this.syncCharacterRenderers();
       this.refreshCharacterStudio(panel);
-      this.showToast('🔄 Reset gear to classic look.');
+      this.showToast('🔄 Reset mascot to natural look (no outfit/extras).');
     });
 
     panel.querySelectorAll<HTMLButtonElement>('[data-shopcat]').forEach((b) => {
@@ -3852,15 +3854,21 @@ class FairCoinSlotsApp {
       });
     }
 
-    // Species row
+    // Species row (23 distinct animals/characters in a 4-column responsive grid)
     const speciesRow = panel.querySelector<HTMLElement>('#char-species-row');
     if (speciesRow) {
       speciesRow.innerHTML = CHARACTER_SPECIES_LIST.map(
-        (sp) => `<button class="subtab-btn ${this.state.character.species === sp.id ? 'active' : ''}" data-species="${sp.id}">${sp.emoji} ${sp.name}</button>`
+        (sp) => `
+          <button class="species-pick-btn ${this.state.character.species === sp.id ? 'active' : ''}" data-species="${sp.id}" title="${sp.name}">
+            <span class="species-pick-emoji">${sp.emoji}</span>
+            <span class="species-pick-name">${sp.name}</span>
+          </button>
+        `
       ).join('');
       speciesRow.querySelectorAll<HTMLButtonElement>('[data-species]').forEach((b) => {
         b.addEventListener('click', () => {
           this.state.character.species = b.dataset.species as CharacterSpecies;
+          this.state.character.colorId = 'natural';
           saveGameState(this.state);
           this.sfx.playTap();
           this.syncCharacterRenderers();
@@ -3904,12 +3912,16 @@ class FairCoinSlotsApp {
       });
     }
 
-    // Color swatches
+    // Color swatches (including Natural Fur + 12 custom dye colors)
     const swatchRow = panel.querySelector<HTMLElement>('#char-swatch-row');
     if (swatchRow) {
-      swatchRow.innerHTML = CHARACTER_COLORS.map(
-        (col) => `<button class="color-swatch ${this.state.character.colorId === col.id ? 'active' : ''}" data-charcolor="${col.id}" style="background:${col.primary};" title="${col.name}"></button>`
-      ).join('');
+      const curSpDef = CHARACTER_SPECIES_LIST.find((s) => s.id === this.state.character.species) ?? CHARACTER_SPECIES_LIST[0];
+      swatchRow.innerHTML = CHARACTER_COLORS.map((col) => {
+        if (col.id === 'natural') {
+          return `<button class="subtab-btn ${this.state.character.colorId === 'natural' ? 'active' : ''}" data-charcolor="natural" style="padding:3px 9px;font-size:10px;border-color:${curSpDef.naturalPrimary};" title="Natural Animal Colors">🎨 Natural</button>`;
+        }
+        return `<button class="color-swatch ${this.state.character.colorId === col.id ? 'active' : ''}" data-charcolor="${col.id}" style="background:${col.primary};" title="${col.name}"></button>`;
+      }).join('');
       swatchRow.querySelectorAll<HTMLButtonElement>('[data-charcolor]').forEach((b) => {
         b.addEventListener('click', () => {
           this.state.character.colorId = b.dataset.charcolor!;
