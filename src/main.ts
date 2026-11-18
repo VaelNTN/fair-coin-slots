@@ -32,6 +32,7 @@ import {
   JackpotKey,
   spinReels,
   SpinResult,
+  WinningLine,
 } from './game/slotEngine';
 import {
   GameState,
@@ -69,16 +70,23 @@ class FairCoinSlotsApp {
   private shopCategory: ShopCategory = 'outfit';
 
   private isSpinning = false;
+  private spinToken = 0;
   private autoSpin = false;
   private turboSpin = false;
+  private autoSpinTimer: number | null = null;
+  private moodTimer: number | null = null;
   private currentGrid: SlotSymbol[][];
   private winningCells = new Set<string>();
+  private winningLines: WinningLine[] = [];
   private lastGambleAmount = 0;
 
   private wheelAngle = 0;
   private wheelSpinning = false;
+  private wheelRafId: number | null = null;
+  private wheelPendingSettle: (() => void) | null = null;
   private isLuckWheelSpin = false;
   private toastTimer = 0;
+  private sessionIntervalId: number | null = null;
   private sessionAlertShown = false;
   private syncTimer: number | null = null;
   private globalEntries: GlobalSlotsEntry[] = [];
@@ -261,6 +269,18 @@ class FairCoinSlotsApp {
     this.plinkoCtrl = null;
     this.previewCharacter?.destroy();
     this.previewCharacter = null;
+
+    if (this.wheelRafId !== null) {
+      cancelAnimationFrame(this.wheelRafId);
+      this.wheelRafId = null;
+    }
+    if (this.wheelSpinning) {
+      this.wheelSpinning = false;
+      this.isLuckWheelSpin = false;
+      const settle = this.wheelPendingSettle;
+      this.wheelPendingSettle = null;
+      settle?.();
+    }
   }
 
   private switchTab(tab: TabId): void {
@@ -277,6 +297,9 @@ class FairCoinSlotsApp {
   }
 
   private startSessionTicker(): void {
+    if (this.sessionIntervalId !== null) {
+      window.clearInterval(this.sessionIntervalId);
+    }
     const updateTimer = () => {
       const mins = Math.floor((Date.now() - this.state.sessionStartAt) / 60_000);
       const pill = this.root.querySelector<HTMLElement>('#hud-session');
@@ -285,12 +308,12 @@ class FairCoinSlotsApp {
         this.sessionAlertShown = true;
         this.showToast(`Break tip: you've played ${mins} mins. Take a breather anytime!`);
       }
-      if (this.activeTab === 'bonuses' && this.bonusSub === 'wheel' && !this.wheelSpinning) {
+      if (!document.hidden && this.activeTab === 'bonuses' && this.bonusSub === 'wheel' && !this.wheelSpinning) {
         this.renderBonusesTab();
       }
     };
     updateTimer();
-    window.setInterval(updateTimer, 15_000);
+    this.sessionIntervalId = window.setInterval(updateTimer, 15_000);
   }
 
   private renderAll(): void {
@@ -327,6 +350,28 @@ class FairCoinSlotsApp {
   }
 
   // ===================== 1. SLOTS TAB =====================
+  private buildMarqueeBulbs(count = 11): string {
+    return Array.from({ length: count }, () => `<span class="marquee-bulb"></span>`).join('');
+  }
+
+  private buildPaylinesSvg(): string {
+    if (this.winningLines.length === 0) return '';
+    const beamColors = ['#ffd166', '#4cc9f0', '#ff5d8f', '#06d6a0', '#c084fc'];
+    const lines = this.winningLines.slice(0, 6).map((wl, idx) => {
+      const color = beamColors[idx % beamColors.length];
+      const pts = wl.rows
+        .slice(0, wl.matchCount)
+        .map((r, c) => `${50 + c * 100},${29 + r * 63}`)
+        .join(' ');
+      return `
+        <polyline class="payline-beam" points="${pts}" stroke="${color}" stroke-width="10" opacity="0.45" />
+        <polyline class="payline-beam" points="${pts}" stroke="${color}" stroke-width="5" opacity="0.92" />
+        <polyline class="payline-beam" points="${pts}" stroke="#ffffff" stroke-width="2" opacity="0.95" />
+      `;
+    });
+    return `<svg class="payline-svg" viewBox="0 0 500 184" preserveAspectRatio="none">${lines.join('')}</svg>`;
+  }
+
   private renderSlotsTab(bannerText?: string, isBig = false): void {
     const panel = this.root.querySelector<HTMLElement>('#tab-slots')!;
     const machine = this.getActiveMachine();
@@ -369,11 +414,12 @@ class FairCoinSlotsApp {
       </div>
 
       <div class="slot-cabinet" style="background:${machine.gradient}; border-color:${machine.frameColor};">
+        <div class="marquee-lights">${this.buildMarqueeBulbs(11)}</div>
         <div class="reels-grid" id="reels-grid">
           ${this.currentGrid
             .map(
               (col, cIdx) => `
-            <div class="reel-col" data-col="${cIdx}">
+            <div class="reel-col ${this.isSpinning ? 'spinning' : ''}" data-col="${cIdx}">
               ${col
                 .map((sym, rIdx) => {
                   const isWin = this.winningCells.has(`${cIdx}-${rIdx}`);
@@ -389,11 +435,13 @@ class FairCoinSlotsApp {
           `
             )
             .join('')}
+          ${this.buildPaylinesSvg()}
         </div>
 
         <div class="win-banner ${isBig ? 'big' : ''}" id="win-banner">
           ${bannerText ?? 'Spin & win! 3x 🎟️ = Free Spins • 5+ 🪙 = Coin Grab'}
         </div>
+        <div class="marquee-lights">${this.buildMarqueeBulbs(11)}</div>
       </div>
 
       <div class="controls-bar">
@@ -426,6 +474,7 @@ class FairCoinSlotsApp {
         this.state.activeMachineId = target.id;
         this.currentGrid = this.buildInitialGrid(target);
         this.winningCells.clear();
+        this.winningLines = [];
         this.lastGambleAmount = 0;
         this.sfx.playTap();
         saveGameState(this.state);
@@ -444,6 +493,7 @@ class FairCoinSlotsApp {
       saveGameState(this.state);
       this.sfx.playBigWin();
       this.spawnCoinShower(18);
+      this.spawnCoinFountain(14);
       this.showToast(`🐷 Piggy Bank opened! +${formatCoins(payout)} coins!`);
       this.renderAll();
     });
@@ -491,12 +541,16 @@ class FairCoinSlotsApp {
 
     panel.querySelector('#btn-auto')?.addEventListener('click', () => {
       this.autoSpin = !this.autoSpin;
+      if (!this.autoSpin && this.autoSpinTimer !== null) {
+        window.clearTimeout(this.autoSpinTimer);
+        this.autoSpinTimer = null;
+      }
       this.sfx.playTap();
       this.renderSlotsTab();
-      if (this.autoSpin && !this.isSpinning) this.triggerSpin();
+      if (this.autoSpin && !this.isSpinning) void this.triggerSpin();
     });
 
-    panel.querySelector('#btn-spin')?.addEventListener('click', () => this.triggerSpin());
+    panel.querySelector('#btn-spin')?.addEventListener('click', () => void this.triggerSpin());
   }
 
   private openGambleModal(): void {
@@ -519,7 +573,10 @@ class FairCoinSlotsApp {
       <button class="action-btn green" id="gamble-keep">Collect Win</button>
     `;
 
+    let resolved = false;
     const resolve = (choice: 'red' | 'black') => {
+      if (resolved) return;
+      resolved = true;
       const cardIsRed = Math.random() < 0.5;
       const won = (choice === 'red' && cardIsRed) || (choice === 'black' && !cardIsRed);
       this.lastGambleAmount = 0;
@@ -528,6 +585,7 @@ class FairCoinSlotsApp {
         this.state.totalWon += amount;
         this.sfx.playBigWin();
         this.spawnCoinShower(18);
+        this.spawnCoinFountain(16);
         this.showToast(`🎉 ${cardIsRed ? '♥️ Red' : '♠️ Black'}! Doubled by +${formatCoins(amount)}!`);
       } else {
         this.state.coins = Math.max(0, this.state.coins - amount);
@@ -542,6 +600,8 @@ class FairCoinSlotsApp {
     box.querySelector('#gamble-red')?.addEventListener('click', () => resolve('red'));
     box.querySelector('#gamble-black')?.addEventListener('click', () => resolve('black'));
     box.querySelector('#gamble-keep')?.addEventListener('click', () => {
+      if (resolved) return;
+      resolved = true;
       this.lastGambleAmount = 0;
       backdrop.classList.add('hidden');
       this.renderSlotsTab();
@@ -550,6 +610,10 @@ class FairCoinSlotsApp {
 
   private async triggerSpin(): Promise<void> {
     if (this.isSpinning) return;
+    if (this.autoSpinTimer !== null) {
+      window.clearTimeout(this.autoSpinTimer);
+      this.autoSpinTimer = null;
+    }
 
     const bet = BET_STEPS[this.state.betIndex] ?? BET_STEPS[0];
     const usingFreeSpin = this.state.freeSpins > 0;
@@ -569,9 +633,11 @@ class FairCoinSlotsApp {
       return;
     }
 
+    const myToken = ++this.spinToken;
     this.isSpinning = true;
     this.lastGambleAmount = 0;
     this.winningCells.clear();
+    this.winningLines = [];
     this.hudCharacter?.setMood('spinning');
     this.sfx.playSpinStart();
 
@@ -600,16 +666,19 @@ class FairCoinSlotsApp {
 
     this.state.piggyBankCoins += result.piggyDeposit;
 
-    const colEls = Array.from(this.root.querySelectorAll<HTMLElement>('.reel-col'));
-    colEls.forEach((el) => el.classList.add('spinning'));
+    this.root.querySelectorAll<HTMLElement>('.payline-svg').forEach((el) => el.remove());
+    this.root.querySelectorAll<HTMLElement>('.reel-col').forEach((el) => el.classList.add('spinning'));
 
     const stepDelay = this.turboSpin ? 95 : 210;
     const baseDelay = this.turboSpin ? 180 : 380;
 
     for (let c = 0; c < 5; c++) {
       await this.wait(c === 0 ? baseDelay : stepDelay);
+      if (this.spinToken !== myToken) {
+        return;
+      }
       this.currentGrid[c] = result.grid[c];
-      const colEl = colEls[c];
+      const colEl = this.root.querySelector<HTMLElement>(`.reel-col[data-col="${c}"]`);
       if (colEl) {
         colEl.classList.remove('spinning');
         colEl.innerHTML = result.grid[c]
@@ -626,12 +695,17 @@ class FairCoinSlotsApp {
       this.sfx.playReelStop(c);
     }
 
+    if (this.spinToken !== myToken) return;
     await this.applySpinOutcome(result, bet);
+    if (this.spinToken !== myToken) return;
     this.isSpinning = false;
 
     if (this.autoSpin && !result.triggerHoldAndSpin && this.activeTab === 'slots') {
-      setTimeout(() => {
-        if (this.autoSpin && !this.isSpinning) this.triggerSpin();
+      this.autoSpinTimer = window.setTimeout(() => {
+        this.autoSpinTimer = null;
+        if (this.autoSpin && !this.isSpinning && this.activeTab === 'slots') {
+          void this.triggerSpin();
+        }
       }, this.turboSpin ? 260 : 650);
     }
   }
@@ -661,6 +735,7 @@ class FairCoinSlotsApp {
       this.state.freeSpinMultiplier = this.state.fairPassActive ? 3 : 2;
     }
 
+    this.winningLines = result.winningLines;
     result.winningLines.forEach((wl) => {
       for (let c = 0; c < wl.matchCount; c++) {
         this.winningCells.add(`${c}-${wl.rows[c]}`);
@@ -680,6 +755,7 @@ class FairCoinSlotsApp {
       this.hudCharacter?.setMood('bigwin');
       this.sfx.playBigWin();
       this.spawnCoinShower(28);
+      this.spawnCoinFountain(24);
     } else if (result.winTier === 'epic' || result.winTier === 'mega' || result.winTier === 'big') {
       const label =
         result.winTier === 'epic' ? 'EPIC WIN' : result.winTier === 'mega' ? 'MEGA WIN' : 'BIG WIN';
@@ -688,11 +764,13 @@ class FairCoinSlotsApp {
       this.hudCharacter?.setMood('bigwin');
       this.sfx.playBigWin();
       this.spawnCoinShower(22);
+      this.spawnCoinFountain(18);
     } else if (result.totalWin > 0) {
       msg = `✨ Won +${formatCoins(result.totalWin)} coins (${result.winningLines.length} line${result.winningLines.length === 1 ? '' : 's'})`;
       this.hudCharacter?.setMood('bonus');
       this.sfx.playWin();
       this.spawnCoinShower(8);
+      this.spawnCoinFountain(8);
     } else {
       this.hudCharacter?.setMood('idle');
     }
@@ -715,7 +793,9 @@ class FairCoinSlotsApp {
       saveGameState(this.state);
       await this.runHoldAndSpinBonus(result.coinPositions, bet);
     } else {
-      setTimeout(() => {
+      if (this.moodTimer !== null) window.clearTimeout(this.moodTimer);
+      this.moodTimer = window.setTimeout(() => {
+        this.moodTimer = null;
         if (!this.isSpinning) this.hudCharacter?.setMood('idle');
       }, 1500);
     }
@@ -855,9 +935,13 @@ class FairCoinSlotsApp {
       playWin: () => this.sfx.playWin(),
     });
 
-    canvas.addEventListener('click', (e) => {
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      e.preventDefault();
       const rect = canvas.getBoundingClientRect();
-      this.dozerCtrl?.dropCoin((e.clientX - rect.left) / rect.width);
+      if (rect.width > 0) {
+        this.dozerCtrl?.dropCoin((e.clientX - rect.left) / rect.width);
+      }
     });
     body.querySelector('#btn-dozer-drop')?.addEventListener('click', () => {
       this.dozerCtrl?.dropCoin(0.3 + Math.random() * 0.4);
@@ -1640,19 +1724,62 @@ class FairCoinSlotsApp {
 
     const cx = size / 2;
     const cy = size / 2;
-    const r = cx - 8;
+    const outerR = cx - 4;
+    const r = cx - 14;
     const isLuckMode = this.isLuckWheelSpin || this.state.wheelSpins <= 0;
 
     ctx.clearRect(0, 0, size, size);
+
+    // Outer ambient glow
+    const bgGlow = ctx.createRadialGradient(cx, cy, r - 10, cx, cy, outerR + 3);
+    bgGlow.addColorStop(0, 'rgba(255, 209, 102, 0.28)');
+    bgGlow.addColorStop(1, 'rgba(255, 209, 102, 0)');
+    ctx.fillStyle = bgGlow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, outerR + 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Brushed metallic outer rim bezel
+    const rimGrad = ctx.createLinearGradient(0, 0, size, size);
+    rimGrad.addColorStop(0, '#fef08a');
+    rimGrad.addColorStop(0.35, '#f59e0b');
+    rimGrad.addColorStop(0.7, '#b45309');
+    rimGrad.addColorStop(1, '#fde047');
+    ctx.fillStyle = rimGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, outerR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(this.wheelAngle);
+
+    // Rotating metallic rim studs
+    const studCount = 16;
+    for (let i = 0; i < studCount; i++) {
+      const ang = (i * Math.PI * 2) / studCount;
+      const sx = Math.cos(ang) * (r + 5);
+      const sy = Math.sin(ang) * (r + 5);
+      ctx.fillStyle = i % 2 === 0 ? '#ffffff' : '#38bdf8';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 2.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
 
     if (isLuckMode) {
       const redHalf = 0.05 * Math.PI;
       const topAng = -Math.PI / 2;
 
-      ctx.fillStyle = '#06d6a0';
+      const greenGrad = ctx.createRadialGradient(0, 0, 12, 0, 0, r);
+      greenGrad.addColorStop(0, '#34d399');
+      greenGrad.addColorStop(1, '#059669');
+      ctx.fillStyle = greenGrad;
       ctx.beginPath();
       ctx.moveTo(0, 0);
       ctx.arc(0, 0, r, topAng + redHalf, topAng + Math.PI * 2 - redHalf);
@@ -1673,11 +1800,11 @@ class FairCoinSlotsApp {
       ctx.stroke();
 
       ctx.fillStyle = '#041f18';
-      ctx.font = 'bold 16px sans-serif';
+      ctx.font = '900 16px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('🍀 +150 SPINS!', 0, 38);
-      ctx.font = 'bold 12px sans-serif';
+      ctx.font = '800 12px sans-serif';
       ctx.fillText('95% CHANCE', 0, 58);
 
       ctx.save();
@@ -1692,32 +1819,95 @@ class FairCoinSlotsApp {
       WHEEL_SLICES.forEach((slice, i) => {
         const start = i * sliceAng - Math.PI / 2;
         const end = start + sliceAng;
-        ctx.fillStyle = slice.color;
+        const mid = start + sliceAng / 2;
+
+        // Glossy radial segment shading
+        const gx = Math.cos(mid) * r * 0.55;
+        const gy = Math.sin(mid) * r * 0.55;
+        const segGrad = ctx.createRadialGradient(0, 0, 12, gx, gy, r);
+        segGrad.addColorStop(0, '#ffffff38');
+        segGrad.addColorStop(0.25, slice.color);
+        segGrad.addColorStop(1, slice.color);
+
+        ctx.fillStyle = segGrad;
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.arc(0, 0, r, start, end);
         ctx.closePath();
         ctx.fill();
+
+        // Outer segment bevel arc
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(0, 0, r - 2, start, end);
+        ctx.stroke();
+
+        // Gold divider stroke
         ctx.strokeStyle = '#ffd166';
         ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(start) * r, Math.sin(start) * r);
         ctx.stroke();
 
         ctx.save();
-        ctx.rotate(start + sliceAng / 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 12px sans-serif';
+        ctx.rotate(mid);
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.font = '800 12px sans-serif';
         ctx.textAlign = 'right';
+        ctx.fillText(`${slice.emoji} ${slice.label}`, r - 11, 5);
+        ctx.fillStyle = '#ffffff';
         ctx.fillText(`${slice.emoji} ${slice.label}`, r - 12, 4);
         ctx.restore();
       });
     }
+    ctx.restore();
 
-    ctx.fillStyle = '#ffd166';
+    // Non-rotating top glass sheen on wheel face
+    ctx.save();
     ctx.beginPath();
-    ctx.arc(0, 0, 18, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r - 1, Math.PI * 1.05, Math.PI * 1.95);
+    ctx.quadraticCurveTo(cx, cy - 10, cx - (r - 1), cy - 4);
+    ctx.closePath();
+    const sheenGrad = ctx.createLinearGradient(0, cy - r, 0, cy);
+    sheenGrad.addColorStop(0, 'rgba(255, 255, 255, 0.26)');
+    sheenGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = sheenGrad;
     ctx.fill();
+    ctx.restore();
+
+    // Glowing 3D center spinner hub
+    ctx.save();
+    ctx.translate(cx, cy);
+    const hubGlow = ctx.createRadialGradient(0, 0, 8, 0, 0, 29);
+    hubGlow.addColorStop(0, 'rgba(255, 209, 102, 0.8)');
+    hubGlow.addColorStop(1, 'rgba(255, 209, 102, 0)');
+    ctx.fillStyle = hubGlow;
+    ctx.beginPath();
+    ctx.arc(0, 0, 29, 0, Math.PI * 2);
+    ctx.fill();
+
+    const hubGrad = ctx.createRadialGradient(-5, -5, 2, 0, 0, 20);
+    hubGrad.addColorStop(0, '#fef9c3');
+    hubGrad.addColorStop(0.55, '#ffd166');
+    hubGrad.addColorStop(1, '#b45309');
+    ctx.fillStyle = hubGrad;
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 15.5, 0, Math.PI * 2);
+    ctx.stroke();
+
     ctx.fillStyle = '#240b36';
-    ctx.font = 'bold 13px sans-serif';
+    ctx.font = 'bold 14px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(isLuckMode ? '🍀' : '★', 0, 1);
@@ -1743,6 +1933,56 @@ class FairCoinSlotsApp {
     const chosenIdx = Math.floor(Math.random() * WHEEL_SLICES.length);
     const luckWon = luckTry ? Math.random() < 0.95 : false;
 
+    const settleOutcome = (showVisuals: boolean) => {
+      if (luckTry) {
+        if (luckWon) {
+          this.state.wheelSpins = 150;
+          if (showVisuals) {
+            this.sfx.playBigWin();
+            this.spawnCoinShower(24);
+            this.spawnConfettiBurst(34);
+            this.showToast('🎉 Lucky hit! +150 Wheel spins added!');
+          }
+        } else if (showVisuals) {
+          this.sfx.playReelStop(0);
+          this.showToast('😅 Narrow miss! Tap Try Your Luck again.');
+        }
+        saveGameState(this.state);
+        if (showVisuals) this.renderAll();
+        return;
+      }
+
+      const win = WHEEL_SLICES[chosenIdx];
+      const passBoost = this.state.fairPassActive ? 2 : 1;
+      this.state.lastWheelSpinAt = Date.now();
+      incrementQuest(this.state, 'wheel', 1);
+
+      if (win.type === 'coins') {
+        this.state.coins += win.value * passBoost;
+        if (showVisuals) this.showToast(`🎡 Wheel prize: +${formatCoins(win.value * passBoost)} coins!`);
+      } else if (win.type === 'freespins') {
+        this.state.freeSpins += win.value;
+        if (showVisuals) this.showToast(`🎡 Wheel prize: +${win.value} Free Spins!`);
+      } else if (win.type === 'chest') {
+        this.state.chests += win.value;
+        if (showVisuals) this.showToast(`🎡 Wheel prize: +${win.value} Chests!`);
+      } else {
+        const pot = this.state.jackpots.mini;
+        this.state.coins += pot;
+        this.state.jackpots.mini = 45_000_000;
+        if (showVisuals) this.showToast(`🏆 Wheel prize: MINI JACKPOT (+${formatCoins(pot)})!`);
+      }
+      saveGameState(this.state);
+      if (showVisuals) {
+        this.sfx.playBigWin();
+        this.spawnCoinShower(18);
+        this.spawnConfettiBurst(30);
+        this.renderAll();
+      }
+    };
+
+    this.wheelPendingSettle = () => settleOutcome(false);
+
     let targetMod: number;
     if (luckTry) {
       if (luckWon) {
@@ -1761,6 +2001,7 @@ class FairCoinSlotsApp {
     let lastTickSector = -1;
 
     const step = (now: number) => {
+      if (!this.wheelSpinning) return;
       const p = Math.min(1, (now - startTime) / duration);
       const ease = 1 - Math.pow(1 - p, 3);
       this.wheelAngle = startAngle + totalDelta * ease;
@@ -1773,53 +2014,16 @@ class FairCoinSlotsApp {
       }
 
       if (p < 1) {
-        requestAnimationFrame(step);
+        this.wheelRafId = requestAnimationFrame(step);
       } else {
+        this.wheelRafId = null;
         this.wheelSpinning = false;
         this.isLuckWheelSpin = false;
-
-        if (luckTry) {
-          if (luckWon) {
-            this.state.wheelSpins = 150;
-            this.sfx.playBigWin();
-            this.spawnCoinShower(24);
-            this.showToast('🎉 Lucky hit! +150 Wheel spins added!');
-          } else {
-            this.sfx.playReelStop(0);
-            this.showToast('😅 Narrow miss! Tap Try Your Luck again.');
-          }
-          saveGameState(this.state);
-          this.renderAll();
-          return;
-        }
-
-        const win = WHEEL_SLICES[chosenIdx];
-        const passBoost = this.state.fairPassActive ? 2 : 1;
-        this.state.lastWheelSpinAt = Date.now();
-        incrementQuest(this.state, 'wheel', 1);
-
-        if (win.type === 'coins') {
-          this.state.coins += win.value * passBoost;
-          this.showToast(`🎡 Wheel prize: +${formatCoins(win.value * passBoost)} coins!`);
-        } else if (win.type === 'freespins') {
-          this.state.freeSpins += win.value;
-          this.showToast(`🎡 Wheel prize: +${win.value} Free Spins!`);
-        } else if (win.type === 'chest') {
-          this.state.chests += win.value;
-          this.showToast(`🎡 Wheel prize: +${win.value} Chests!`);
-        } else {
-          const pot = this.state.jackpots.mini;
-          this.state.coins += pot;
-          this.state.jackpots.mini = 45_000_000;
-          this.showToast(`🏆 Wheel prize: MINI JACKPOT (+${formatCoins(pot)})!`);
-        }
-        saveGameState(this.state);
-        this.sfx.playBigWin();
-        this.spawnCoinShower(18);
-        this.renderAll();
+        this.wheelPendingSettle = null;
+        settleOutcome(true);
       }
     };
-    requestAnimationFrame(step);
+    this.wheelRafId = requestAnimationFrame(step);
   }
 
   private openInfoModal(): void {
@@ -1857,9 +2061,33 @@ class FairCoinSlotsApp {
       });
 
       box.querySelector('#info-reset-game')?.addEventListener('click', () => {
+        this.spinToken += 1;
+        this.isSpinning = false;
+        this.autoSpin = false;
+        if (this.autoSpinTimer !== null) {
+          window.clearTimeout(this.autoSpinTimer);
+          this.autoSpinTimer = null;
+        }
+        if (this.moodTimer !== null) {
+          window.clearTimeout(this.moodTimer);
+          this.moodTimer = null;
+        }
+        if (this.wheelRafId !== null) {
+          cancelAnimationFrame(this.wheelRafId);
+          this.wheelRafId = null;
+        }
+        this.wheelSpinning = false;
+        this.isLuckWheelSpin = false;
+        this.wheelPendingSettle = null;
+        this.wheelAngle = 0;
+        this.winningCells.clear();
+        this.winningLines = [];
+        this.lastGambleAmount = 0;
+
         localStorage.removeItem('fair_coin_slots_state_v2');
         localStorage.removeItem('fair_coin_slots_state_v1');
         this.state = loadGameState(this.state.deviceId);
+        this.currentGrid = this.buildInitialGrid(this.getActiveMachine());
         saveGameState(this.state);
         this.syncCharacterRenderers();
         this.sfx.playTap();
@@ -1913,6 +2141,7 @@ class FairCoinSlotsApp {
     saveGameState(this.state);
     this.sfx.playBigWin();
     this.spawnCoinShower(14);
+    this.spawnCoinFountain(12);
     this.showToast(`🛟 Coin Rescue! +${formatCoins(bonus)} coins added!`);
     this.renderAll();
   }
@@ -1927,6 +2156,53 @@ class FairCoinSlotsApp {
       el.style.animationDelay = `${Math.random() * 0.35}s`;
       document.body.appendChild(el);
       setTimeout(() => el.remove(), 2400);
+    }
+  }
+
+  private spawnCoinFountain(count: number): void {
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight * 0.48;
+    for (let i = 0; i < count; i++) {
+      const el = document.createElement('div');
+      el.className = 'fountain-particle';
+      el.textContent = '★';
+      el.style.left = `${cx - 12}px`;
+      el.style.top = `${cy}px`;
+      const dx = (Math.random() - 0.5) * 260;
+      const peak = -110 - Math.random() * 110;
+      const endY = 180 + Math.random() * 160;
+      const dur = 0.85 + Math.random() * 0.45;
+      el.style.setProperty('--dx', `${dx}px`);
+      el.style.setProperty('--peak', `${peak}px`);
+      el.style.setProperty('--endY', `${endY}px`);
+      el.style.setProperty('--dur', `${dur}s`);
+      el.style.animationDelay = `${Math.random() * 0.16}s`;
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), Math.round((dur + 0.25) * 1000));
+    }
+  }
+
+  private spawnConfettiBurst(count: number): void {
+    const palette = ['#ffd166', '#4cc9f0', '#ff5d8f', '#06d6a0', '#c084fc', '#ffffff'];
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight * 0.42;
+    for (let i = 0; i < count; i++) {
+      const el = document.createElement('div');
+      el.className = 'confetti-particle';
+      el.style.background = palette[i % palette.length];
+      el.style.left = `${cx - 4}px`;
+      el.style.top = `${cy}px`;
+      const dx = (Math.random() - 0.5) * 290;
+      const peak = -90 - Math.random() * 130;
+      const endY = 200 + Math.random() * 180;
+      const dur = 1.0 + Math.random() * 0.55;
+      el.style.setProperty('--dx', `${dx}px`);
+      el.style.setProperty('--peak', `${peak}px`);
+      el.style.setProperty('--endY', `${endY}px`);
+      el.style.setProperty('--dur', `${dur}s`);
+      el.style.animationDelay = `${Math.random() * 0.14}s`;
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), Math.round((dur + 0.25) * 1000));
     }
   }
 

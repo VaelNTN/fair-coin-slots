@@ -28,6 +28,8 @@ export class MascotRenderer {
     auraId: 'aura_none',
   };
   private t = 0;
+  private lastTime = 0;
+  private destroyed = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -54,12 +56,20 @@ export class MascotRenderer {
   }
 
   destroy(): void {
-    cancelAnimationFrame(this.rafId);
+    this.destroyed = true;
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = 0;
+    }
   }
 
   private start(): void {
-    const loop = () => {
-      this.t += 0.045;
+    this.lastTime = performance.now();
+    const loop = (now: number) => {
+      if (this.destroyed) return;
+      const dt = Math.min(0.05, Math.max(0.001, (now - this.lastTime) / 1000));
+      this.lastTime = now;
+      this.t += dt * 2.7;
       this.draw();
       this.rafId = requestAnimationFrame(loop);
     };
@@ -123,8 +133,12 @@ export class MascotRenderer {
     // 4. Ears / Horns based on species
     this.drawSpeciesEars(ctx, config.species, palette);
 
-    // 5. Head
-    ctx.fillStyle = palette.primary;
+    // 5. Head with 3D radial fur/metal shading
+    const headGrad = ctx.createRadialGradient(-9, -15, 4, 0, -4, 30);
+    headGrad.addColorStop(0, palette.secondary);
+    headGrad.addColorStop(0.55, palette.primary);
+    headGrad.addColorStop(1, palette.outline);
+    ctx.fillStyle = headGrad;
     ctx.strokeStyle = palette.outline;
     ctx.lineWidth = 2.6;
     if (config.species === 'robot') {
@@ -132,11 +146,21 @@ export class MascotRenderer {
       ctx.roundRect(-27, -28, 54, 48, 12);
       ctx.fill();
       ctx.stroke();
+      // Metallic visor bezel highlight
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+      ctx.beginPath();
+      ctx.roundRect(-22, -25, 44, 6, 3);
+      ctx.fill();
     } else {
       ctx.beginPath();
       ctx.arc(0, -4, 27, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+      // Soft crown fur sheen
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.beginPath();
+      ctx.ellipse(-7, -20, 12, 5.5, -0.25, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     // Species facial markings (panda patches, fox cheeks, dragon muzzle)
@@ -419,17 +443,27 @@ export class MascotRenderer {
       } else {
         ctx.fillStyle = species === 'robot' ? '#38bdf8' : '#ffffff';
         ctx.beginPath();
-        ctx.arc(ex, ey, 5.2, 0, Math.PI * 2);
+        ctx.arc(ex, ey, 5.5, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
         if (species !== 'robot') {
           const pupilOff = this.mood === 'spinning' ? Math.sin(this.t * 6) * 1.8 : 0;
-          ctx.fillStyle = '#1e1b4b';
+          ctx.fillStyle = '#3b82f6';
           ctx.beginPath();
-          ctx.arc(ex + pupilOff, ey, 2.8, 0, Math.PI * 2);
+          ctx.arc(ex + pupilOff, ey, 3.3, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#0f172a';
+          ctx.beginPath();
+          ctx.arc(ex + pupilOff, ey, 2.2, 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = '#ffffff';
           ctx.beginPath();
-          ctx.arc(ex + 1 + pupilOff * 0.4, ey - 1.2, 1.1, 0, Math.PI * 2);
+          ctx.arc(ex + 1.1 + pupilOff * 0.4, ey - 1.4, 1.25, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(ex - 1 + pupilOff * 0.4, ey + 1.2, 0.65, 0, Math.PI * 2);
           ctx.fill();
         }
       }
@@ -461,6 +495,10 @@ export class MascotRenderer {
       ctx.ellipse(0, 2, 11, 7.5, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.beginPath();
+      ctx.ellipse(-3, -1.5, 4, 1.5, -0.2, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = palette.outline;
       ctx.beginPath();
       ctx.ellipse(-3.5, 2, 1.8, 2.8, 0, 0, Math.PI * 2);
@@ -478,13 +516,17 @@ export class MascotRenderer {
       ctx.roundRect(-12, 5, 24, 7, 3);
       ctx.stroke();
     } else {
-      // Cute triangle nose + ":3" smile for cat / panda / fox / dragon
+      // Cute triangle nose with glossy catchlight + ":3" smile
       ctx.fillStyle = species === 'cat' ? '#fb7185' : palette.outline;
       ctx.beginPath();
       ctx.moveTo(-4, -1);
       ctx.lineTo(4, -1);
       ctx.lineTo(0, 4);
       ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.65)';
+      ctx.beginPath();
+      ctx.arc(-1.2, 0.4, 1.1, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.strokeStyle = palette.outline;

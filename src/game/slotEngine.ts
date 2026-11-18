@@ -187,7 +187,8 @@ export function spinReels(params: {
   const linePayout = Math.round((baseLineWin + scatterBonus) * activeMult);
   const totalWin = linePayout + (jackpotWon ? jackpotWon.amount : 0);
 
-  const ratio = totalWin / bet;
+  const safeBet = Number.isFinite(bet) && bet > 0 ? bet : 1;
+  const ratio = totalWin / safeBet;
   let winTier: WinTier = 'none';
   if (jackpotWon || ratio >= 25) winTier = 'epic';
   else if (ratio >= 12) winTier = 'mega';
