@@ -40,12 +40,65 @@ export interface VillageWorldDef {
   completionCoins: number;
   completionSpins: number;
   completionChests: number;
+  completionSilverPacks: number;
+  completionGoldPacks: number;
   completionTokens: number;
   completionJoker: boolean;
   buildings: VillageBuildingDef[];
 }
 
 export const WORLD_BIOMES: VillageBiome[] = [
+  {
+    id: 'pirate',
+    name: 'Pirate Bay',
+    emoji: '🏴‍☠️',
+    skyTop: '#082f49',
+    skyBottom: '#06b6d4',
+    groundColor: '#0e7490',
+    accent: '#fde047',
+    scenery: ['🦜', '🥥', '🗺️'],
+    buildings: [
+      { name: 'Smuggler Hut', emoji: '🏝️' },
+      { name: 'Cannon Battery', emoji: '💣' },
+      { name: 'Rum Tavern', emoji: '🍻' },
+      { name: 'Skull Grotto', emoji: '💀' },
+      { name: 'Kraken Vault', emoji: '🧰' },
+    ],
+  },
+  {
+    id: 'nebula',
+    name: 'Space Station',
+    emoji: '🚀',
+    skyTop: '#090218',
+    skyBottom: '#7e22ce',
+    groundColor: '#3b0764',
+    accent: '#38bdf8',
+    scenery: ['🪐', '☄️', '🛸'],
+    buildings: [
+      { name: 'Warp Beacon', emoji: '📡' },
+      { name: 'Starship Pier', emoji: '🚀' },
+      { name: 'Plasma Core', emoji: '⚡' },
+      { name: 'Alien Bazaar', emoji: '👾' },
+      { name: 'Galactic Spire', emoji: '🌌' },
+    ],
+  },
+  {
+    id: 'cyber',
+    name: 'Cyber City',
+    emoji: '🤖',
+    skyTop: '#090d2c',
+    skyBottom: '#6d28d9',
+    groundColor: '#1e1b4b',
+    accent: '#22d3ee',
+    scenery: ['⚡', '🛸', '💠'],
+    buildings: [
+      { name: 'Arcade Pod', emoji: '🕹️' },
+      { name: 'Holo Billboard', emoji: '📺' },
+      { name: 'Cyber Vault', emoji: '💾' },
+      { name: 'Maglev Spire', emoji: '🚅' },
+      { name: 'Neon Nexus', emoji: '🌆' },
+    ],
+  },
   {
     id: 'meadow',
     name: 'Sunny Fox Hollow',
@@ -149,23 +202,6 @@ export const WORLD_BIOMES: VillageBiome[] = [
     ],
   },
   {
-    id: 'cyber',
-    name: 'Neon Cyber Tokyo',
-    emoji: '🤖',
-    skyTop: '#090d2c',
-    skyBottom: '#6d28d9',
-    groundColor: '#1e1b4b',
-    accent: '#22d3ee',
-    scenery: ['⚡', '🛸', '💠'],
-    buildings: [
-      { name: 'Arcade Pod', emoji: '🕹️' },
-      { name: 'Holo Billboard', emoji: '📺' },
-      { name: 'Cyber Vault', emoji: '💾' },
-      { name: 'Maglev Spire', emoji: '🚅' },
-      { name: 'Neon Nexus', emoji: '🌆' },
-    ],
-  },
-  {
     id: 'volcano',
     name: 'Volcano Forge',
     emoji: '🌋',
@@ -180,23 +216,6 @@ export const WORLD_BIOMES: VillageBiome[] = [
       { name: 'Magma Mill', emoji: '⚙️' },
       { name: 'Ruby Anvil', emoji: '⚒️' },
       { name: 'Caldera Fortress', emoji: '🌋' },
-    ],
-  },
-  {
-    id: 'pirate',
-    name: 'Pirate Treasure Cove',
-    emoji: '🏴‍☠️',
-    skyTop: '#082f49',
-    skyBottom: '#06b6d4',
-    groundColor: '#0e7490',
-    accent: '#fde047',
-    scenery: ['🦜', '🥥', '🗺️'],
-    buildings: [
-      { name: 'Smuggler Hut', emoji: '🏝️' },
-      { name: 'Cannon Battery', emoji: '💣' },
-      { name: 'Rum Tavern', emoji: '🍻' },
-      { name: 'Skull Grotto', emoji: '💀' },
-      { name: 'Kraken Vault', emoji: '🧰' },
     ],
   },
   {
@@ -404,23 +423,6 @@ export const WORLD_BIOMES: VillageBiome[] = [
     ],
   },
   {
-    id: 'nebula',
-    name: 'Nebula Starport',
-    emoji: '🚀',
-    skyTop: '#090218',
-    skyBottom: '#7e22ce',
-    groundColor: '#3b0764',
-    accent: '#38bdf8',
-    scenery: ['🪐', '☄️', '🛸'],
-    buildings: [
-      { name: 'Warp Beacon', emoji: '📡' },
-      { name: 'Starship Pier', emoji: '🚀' },
-      { name: 'Plasma Core', emoji: '⚡' },
-      { name: 'Alien Bazaar', emoji: '👾' },
-      { name: 'Galactic Spire', emoji: '🌌' },
-    ],
-  },
-  {
     id: 'dragon',
     name: 'Dragon Citadel',
     emoji: '🐉',
@@ -561,8 +563,10 @@ export function getVillageDef(villageLevel: number): VillageWorldDef {
     difficultyFactor,
     raidShieldChance,
     completionCoins: Math.round(280_000_000 * econMult * milestoneBoost),
-    completionSpins: 15 + (lvl % 5 === 0 ? 15 : 0) + (isBossLevel ? 20 : 0) + Math.min(35, Math.floor(lvl / 25) * 3),
+    completionSpins: 20 + (lvl % 5 === 0 ? 15 : 0) + (isBossLevel ? 25 : 0) + Math.min(35, Math.floor(lvl / 25) * 3),
     completionChests: isBossLevel ? 4 : lvl % 5 === 0 ? 3 : 2,
+    completionSilverPacks: lvl % 2 === 0 || isBossLevel ? 2 : 1,
+    completionGoldPacks: isBossLevel ? 2 : lvl % 5 === 0 ? 1 : 0,
     completionTokens: isBossLevel ? 4 : 1 + (lvl % 3 === 0 ? 1 : 0),
     completionJoker: lvl % 25 === 0 || lvl === 10,
     buildings,
@@ -571,19 +575,19 @@ export function getVillageDef(villageLevel: number): VillageWorldDef {
 
 /**
  * Computes coin cost for upgrading slotIdx (0..4) from currentStar (0..4) -> currentStar + 1.
- * Lv 1 stars total ~450M-700M (very welcoming with 1.5B starter coins);
- * rises steadily through Billions, Trillions, Quadrillions across 550+ levels.
+ * Follows exponential scaling: baseCost * (1.42 ^ level) * worldCostMultiplier * discountFactor.
  */
 export function getVillageBuildingUpgradeCost(
   villageLevel: number,
   slotIdx: number,
-  currentStar: number
+  currentStar: number,
+  discountFactor = 1
 ): number {
   const def = getVillageDef(villageLevel);
   const weight = def.buildings[slotIdx]?.baseWeight ?? 1;
   const starCurve = Math.pow(1.42, Math.max(0, currentStar));
   const costMult = getWorldCostMultiplier(villageLevel);
-  return Math.round(14_000_000 * weight * starCurve * costMult);
+  return Math.round(14_000_000 * weight * starCurve * costMult * discountFactor);
 }
 
 /**

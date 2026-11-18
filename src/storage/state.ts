@@ -8,6 +8,8 @@ import {
 import {
   CARDS,
   CardItem,
+  CardPackTier,
+  FlashEventId,
   KINGDOM_BUILDINGS,
   PetId,
   QUEST_TEMPLATES,
@@ -55,6 +57,9 @@ export interface GameState {
   cards: Record<string, number>;
   claimedSets: string[];
   chests: number;
+  silverPacks: number;
+  goldPacks: number;
+  albumCompleted: boolean;
   quests: Record<string, QuestProgressState>;
   lastHalfHourBonusAt: number;
   lastWheelSpinAt: number;
@@ -110,6 +115,7 @@ export interface GameState {
   lastCardRequestAt: number;
   lastCoinRequestAt: number;
   friendInviteCode: string;
+  debugEventOverride: FlashEventId | null;
 }
 
 export function getCurrentMonthKey(d = new Date()): string {
@@ -199,6 +205,9 @@ export function createInitialState(deviceId = generateFallbackDeviceId()): GameS
     cards: { c1: 1, c7: 1 },
     claimedSets: [],
     chests: 3,
+    silverPacks: 1,
+    goldPacks: 0,
+    albumCompleted: false,
     quests,
     lastHalfHourBonusAt: 0,
     lastWheelSpinAt: 0,
@@ -251,6 +260,7 @@ export function createInitialState(deviceId = generateFallbackDeviceId()): GameS
     lastCardRequestAt: 0,
     lastCoinRequestAt: 0,
     friendInviteCode: `FOX-${deviceId.slice(-6).toUpperCase()}`,
+    debugEventOverride: null,
   };
 }
 
@@ -388,22 +398,84 @@ export function incrementQuest(
   });
 }
 
-export function openCardChest(state: GameState, count = 3): CardItem[] {
-  const drawn: CardItem[] = [];
-  for (let i = 0; i < count; i++) {
-    const missing = CARDS.filter((c) => !state.cards[c.id]);
-    let picked: CardItem;
-    if (missing.length > 0 && Math.random() < 0.62) {
-      picked = missing[Math.floor(Math.random() * missing.length)];
-    } else {
-      picked = CARDS[Math.floor(Math.random() * CARDS.length)];
+export type DrawnCardResult = CardItem & { isNew: boolean };
+
+function pickWeightedCard(pool: CardItem[], state: GameState, tier: CardPackTier): CardItem {
+  const ownedBySet: Record<string, number> = {};
+  for (const c of CARDS) {
+    if ((state.cards[c.id] ?? 0) > 0) {
+      ownedBySet[c.setId] = (ownedBySet[c.setId] ?? 0) + 1;
     }
+  }
+  const starBaseWeights: Record<number, number> = {
+    1: tier === 'gold' ? 4 : tier === 'silver' ? 12 : 36,
+    2: tier === 'gold' ? 8 : tier === 'silver' ? 22 : 24,
+    3: tier === 'gold' ? 18 : tier === 'silver' ? 28 : 13,
+    4: tier === 'gold' ? 28 : tier === 'silver' ? 14 : 4.5,
+    5: tier === 'gold' ? 14 : tier === 'silver' ? 5 : 1.4,
+  };
+
+  let totalWeight = 0;
+  const weights = pool.map((c) => {
+    const owned = (state.cards[c.id] ?? 0) > 0;
+    const setOwnedCount = ownedBySet[c.setId] ?? 0;
+    let w = starBaseWeights[c.stars] ?? 10;
+
+    if (!owned) {
+      if (setOwnedCount < 7 && !c.isChaseCard) {
+        // Eager discovery so players quickly reach 7/9 "almost complete!"
+        w *= 3.4;
+      } else {
+        // Last 2 chase cards in each set are rare!
+        w *= tier === 'gold' ? 1.5 : tier === 'silver' ? 0.75 : 0.42;
+      }
+    } else {
+      // Already owned duplicates appear more often later, feeding the Star Vault
+      w *= setOwnedCount >= 7 ? 1.5 : 0.85;
+    }
+    totalWeight += w;
+    return w;
+  });
+
+  let roll = Math.random() * totalWeight;
+  for (let i = 0; i < pool.length; i++) {
+    roll -= weights[i];
+    if (roll <= 0) return pool[i];
+  }
+  return pool[pool.length - 1];
+}
+
+export function openCardChest(
+  state: GameState,
+  count = 3,
+  tier: CardPackTier = 'bronze',
+  guaranteedNewCount = 0
+): DrawnCardResult[] {
+  const drawn: DrawnCardResult[] = [];
+  for (let i = 0; i < count; i++) {
+    const missing = CARDS.filter((c) => !(state.cards[c.id] ?? 0));
+    let picked: CardItem;
+
+    if (i < guaranteedNewCount && missing.length > 0) {
+      // Guaranteed new missing card (weighted toward lowest-missing first, or random rare if only chase left)
+      picked = pickWeightedCard(missing, state, tier);
+    } else if (i === 0 && tier === 'gold') {
+      const highPool = CARDS.filter((c) => c.stars >= 4);
+      picked = pickWeightedCard(highPool.length > 0 ? highPool : CARDS, state, tier);
+    } else if (i === 0 && tier === 'silver') {
+      const midPool = CARDS.filter((c) => c.stars >= 3);
+      picked = pickWeightedCard(midPool.length > 0 ? midPool : CARDS, state, tier);
+    } else {
+      picked = pickWeightedCard(CARDS, state, tier);
+    }
+
     const prev = state.cards[picked.id] ?? 0;
-    if (prev > 0) {
+    const isNew = prev === 0;
+    if (!isNew) {
       state.duplicateStars += picked.stars;
     }
     state.cards[picked.id] = prev + 1;
-    drawn.push(picked);
+    drawn.push({ ...picked, isNew });
   }
   return drawn;
 }

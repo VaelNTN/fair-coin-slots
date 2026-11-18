@@ -12,8 +12,11 @@ import {
   RIVAL_CLUBS,
 } from './data/foxClub';
 import {
+  ALBUM_MASTER_REWARD,
+  CARD_PACK_DEFS,
   CARDS,
   CARD_SETS,
+  CardPackTier,
   CHARACTER_COLORS,
   CHARACTER_SPECIES_LIST,
   CharacterSpecies,
@@ -76,6 +79,7 @@ import {
 import { drawVillagePanoramaCanvas } from './game/villageSceneRenderer';
 import {
   addClubActivityPoints,
+  DrawnCardResult,
   GameState,
   getCurrentMonthKey,
   getTotalMultiplier,
@@ -179,6 +183,7 @@ class FairCoinSlotsApp {
   private kenoBet = 25_000_000;
   private kenoPicks: number[] = [3, 7, 12, 18, 22];
   private kenoDrawn: number[] = [];
+  private winCombo = 0;
 
   constructor(root: HTMLElement, initialState: GameState) {
     this.root = root;
@@ -196,6 +201,17 @@ class FairCoinSlotsApp {
     this.startSessionTicker();
     this.startVipPassTicker();
     this.scheduleNextBalloon();
+  }
+
+  private getFlashEvent() {
+    return getActiveFlashEvent(Date.now(), this.state.debugEventOverride);
+  }
+
+  private triggerScreenShake(): void {
+    this.root.classList.remove('screen-shake');
+    void this.root.offsetWidth;
+    this.root.classList.add('screen-shake');
+    window.setTimeout(() => this.root.classList.remove('screen-shake'), 450);
   }
 
   private scheduleGlobalSync(delayMs = 2500): void {
@@ -280,7 +296,10 @@ class FairCoinSlotsApp {
             <button class="icon-btn" id="btn-info" aria-label="Game Info">ℹ️</button>
             <button class="icon-btn" id="btn-sound" aria-label="Toggle Sound">🔊</button>
           </div>
-          <span class="session-pill" id="hud-session">0m</span>
+          <div class="hud-btn-row">
+            <button class="icon-btn" id="btn-debug" style="padding:2px 6px;font-size:10px;" aria-label="Debug Menu">🛠️ Test</button>
+            <span class="session-pill" id="hud-session">0m</span>
+          </div>
         </div>
       </header>
 
@@ -312,6 +331,11 @@ class FairCoinSlotsApp {
     this.root.querySelector('#btn-info')?.addEventListener('click', () => {
       this.sfx.playTap();
       this.openInfoModal();
+    });
+
+    this.root.querySelector('#btn-debug')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      this.openDebugModal();
     });
 
     const soundBtn = this.root.querySelector<HTMLButtonElement>('#btn-sound')!;
@@ -509,7 +533,7 @@ class FairCoinSlotsApp {
       }
 
       // Tick Flash Event & Pet Boost timers in UI
-      const flash = getActiveFlashEvent();
+      const flash = this.getFlashEvent();
       const flashEl = this.root.querySelector<HTMLElement>('#flash-event-timer');
       if (flashEl) flashEl.textContent = this.formatMmSs(flash.remainingMs);
 
@@ -630,8 +654,24 @@ class FairCoinSlotsApp {
   }
 
   private getSlotBetSteps(): number[] {
-    const { event } = getActiveFlashEvent();
+    const { event } = this.getFlashEvent();
     return getDynamicWorldBetSteps(this.state.villageLevel, event.id === 'high_roller');
+  }
+
+  private getClosestAlbumHint(): string {
+    const ownedUnique = CARDS.filter((c) => (this.state.cards[c.id] ?? 0) > 0).length;
+    if (ownedUnique >= CARDS.length) return `👑 Album ${ownedUnique}/${CARDS.length} COMPLETE!`;
+    let bestSet = CARD_SETS[0];
+    let bestOwned = -1;
+    for (const set of CARD_SETS) {
+      const cnt = CARDS.filter((c) => c.setId === set.id && (this.state.cards[c.id] ?? 0) > 0).length;
+      if (cnt < 9 && cnt > bestOwned) {
+        bestOwned = cnt;
+        bestSet = set;
+      }
+    }
+    const left = 9 - Math.max(0, bestOwned);
+    return `${bestSet.emoji} ${bestSet.name}: <b>${Math.max(0, bestOwned)}/9</b> cards${left <= 3 ? ` (Only ${left} left!)` : ''}`;
   }
 
   private renderSlotsTab(bannerText?: string, isBig = false): void {
@@ -642,9 +682,11 @@ class FairCoinSlotsApp {
       this.state.betIndex = betSteps.length - 1;
     }
     const bet = betSteps[this.state.betIndex] ?? betSteps[0];
-    const flash = getActiveFlashEvent();
+    const flash = this.getFlashEvent();
     const petBoost = getActivePetBoost(this.state);
     const stars = getVillageStarsCount(this.state.villageStars);
+    const upgradesLeft = Math.max(0, STARS_PER_VILLAGE - stars);
+    const totalPacks = this.state.chests + this.state.silverPacks + this.state.goldPacks;
 
     const vipPillHtml = this.isPassProcessing()
       ? `<button class="vip-pill" id="btn-vip-quick"><span class="vip-mini-dot"></span><span>VIP <span id="vip-quick-timer">${this.formatMmSs(this.state.passProcessingUntil! - Date.now())}</span></span></button>`
@@ -656,12 +698,21 @@ class FairCoinSlotsApp {
       petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦊 Feed Pet'
     }</span></button>`;
 
-    const worldPillHtml = `<button class="world-pill" id="btn-hud-world">🏘️ W${this.state.villageLevel}/${TOTAL_WORLD_LEVELS}+ (${stars}★)</button>`;
+    const worldPillHtml = `<button class="world-pill" id="btn-hud-world">🏘️ W${this.state.villageLevel}/${TOTAL_WORLD_LEVELS}+ (${stars}/25★)</button>`;
 
     panel.innerHTML = `
       <div class="flash-event-banner" style="border-color:${flash.event.color};">
         <span>${flash.event.emoji} <b>${flash.event.name}:</b> ${flash.event.desc}</span>
         <span style="color:${flash.event.color};white-space:nowrap;" id="flash-event-timer">${this.formatMmSs(flash.remainingMs)}</span>
+      </div>
+
+      <div class="mini-progress-wrap">
+        <span style="cursor:pointer;" id="slots-prog-world">
+          ${upgradesLeft === 0 ? `🎉 World ${this.state.villageLevel} Ready!` : `🔨 <b>${upgradesLeft}</b> upgrade${upgradesLeft === 1 ? '' : 's'} to World ${this.state.villageLevel + 1}!`}
+        </span>
+        <span style="cursor:pointer;color:#ffd166;" id="slots-prog-album">
+          ${this.getClosestAlbumHint()}${totalPacks > 0 ? ` • ${totalPacks}🎁` : ''}
+        </span>
       </div>
 
       <div class="machine-strip">
@@ -788,6 +839,16 @@ class FairCoinSlotsApp {
     panel.querySelector('#btn-hud-world')?.addEventListener('click', () => {
       this.clubSub = 'village';
       this.switchTab('club');
+    });
+
+    panel.querySelector('#slots-prog-world')?.addEventListener('click', () => {
+      this.clubSub = 'village';
+      this.switchTab('club');
+    });
+
+    panel.querySelector('#slots-prog-album')?.addEventListener('click', () => {
+      this.bonusSub = 'cards';
+      this.switchTab('bonuses');
     });
 
     panel.querySelector('#btn-hud-pet')?.addEventListener('click', () => {
@@ -1001,7 +1062,7 @@ class FairCoinSlotsApp {
   }
 
   private async applySpinOutcome(result: SpinResult, bet: number): Promise<void> {
-    const flash = getActiveFlashEvent();
+    const flash = this.getFlashEvent();
     const petBoost = getActivePetBoost(this.state);
 
     let winBoostFactor = 1;
@@ -1011,12 +1072,15 @@ class FairCoinSlotsApp {
     const finalWin = result.jackpotWon ? result.totalWin : Math.round(result.totalWin * winBoostFactor);
 
     if (finalWin > 0) {
+      this.winCombo += 1;
       this.state.coins += finalWin;
       this.state.totalWon += finalWin;
       incrementQuest(this.state, 'wins', 1);
       if (!result.jackpotWon && !this.autoSpin) {
         this.lastGambleAmount = finalWin;
       }
+    } else {
+      this.winCombo = 0;
     }
 
     if (result.jackpotWon) {
@@ -1045,6 +1109,20 @@ class FairCoinSlotsApp {
         extraDrops.push(`🧩 Puzzle Complete! +${formatCoins(puz.completedChapter.rewardCoins)} +🃏 Joker`);
       } else if (puz.pieceIdx !== null) {
         extraDrops.push(`🧩 Puzzle #${puz.pieceIdx + 1}`);
+      }
+    }
+    const packChance = flash.event.id === 'cards_boom' ? 0.14 : 0.065;
+    if (Math.random() < packChance) {
+      const roll = Math.random();
+      if (roll < 0.14) {
+        this.state.goldPacks += 1;
+        extraDrops.push('🥇 Gold Card Pack!');
+      } else if (roll < 0.42) {
+        this.state.silverPacks += 1;
+        extraDrops.push('🥈 Silver Card Pack!');
+      } else {
+        this.state.chests += 1;
+        extraDrops.push('🥉 Bronze Card Pack!');
       }
     }
     if (Math.random() < 0.12) {
@@ -1090,8 +1168,10 @@ class FairCoinSlotsApp {
       isBig = true;
       this.hudCharacter?.setMood('bigwin');
       this.sfx.playBigWin();
+      this.triggerScreenShake();
       this.spawnCoinShower(28);
       this.spawnCoinFountain(24);
+      this.spawnConfettiBurst(24);
     } else if (result.winTier === 'epic' || result.winTier === 'mega' || result.winTier === 'big') {
       const label =
         result.winTier === 'epic' ? 'EPIC WIN' : result.winTier === 'mega' ? 'MEGA WIN' : 'BIG WIN';
@@ -1099,12 +1179,13 @@ class FairCoinSlotsApp {
       isBig = true;
       this.hudCharacter?.setMood('bigwin');
       this.sfx.playBigWin();
+      this.triggerScreenShake();
       this.spawnCoinShower(22);
       this.spawnCoinFountain(18);
     } else if (finalWin > 0) {
       msg = `✨ Won +${formatCoins(finalWin)} coins (${result.winningLines.length} line${result.winningLines.length === 1 ? '' : 's'})`;
       this.hudCharacter?.setMood('bonus');
-      this.sfx.playWin();
+      this.sfx.playWinPitch(this.winCombo);
       this.spawnCoinShower(8);
       this.spawnCoinFountain(8);
     } else {
@@ -2201,7 +2282,7 @@ class FairCoinSlotsApp {
     const scaledCannonCost = Math.round(CANNON_COST * econ);
     const raidFree = this.state.coins < scaledRaidCost;
     const cannonFree = this.state.coins < scaledCannonCost;
-    const flash = getActiveFlashEvent();
+    const flash = this.getFlashEvent();
     const petBoost = getActivePetBoost(this.state);
     const raidMult = (flash.event.id === 'raid_madness' ? 2 : 1) * (petBoost.pet?.id === 'foxy' ? 1.35 : 1) * econ;
 
@@ -2265,6 +2346,7 @@ class FairCoinSlotsApp {
           this.showToast(`🛡️ Blocked by shield at ${target}! Salvaged +${formatCoins(loot)} coins.`);
         } else {
           this.sfx.playBigWin();
+          this.triggerScreenShake();
           this.spawnCoinShower(16);
           this.spawnConfettiBurst(22);
           this.showToast(`💥 ${isRevenge ? '2x REVENGE ' : ''}SMASHED ${target}! Stole +${formatCoins(loot)} coins!`);
@@ -2314,9 +2396,13 @@ class FairCoinSlotsApp {
   private renderProgressiveVillageCardHtml(): string {
     const def = getVillageDef(this.state.villageLevel);
     const stars = getVillageStarsCount(this.state.villageStars);
+    const upgradesLeft = Math.max(0, STARS_PER_VILLAGE - stars);
     const mult = getTotalMultiplier(this.state);
     const pct = Math.round((stars / STARS_PER_VILLAGE) * 100);
     const allBuilt = stars >= STARS_PER_VILLAGE;
+    const flash = this.getFlashEvent();
+    const isDiscount = flash.event.id === 'build_discount';
+    const discountFactor = isDiscount ? 0.7 : 1;
 
     return `
       <div class="card">
@@ -2326,9 +2412,14 @@ class FairCoinSlotsApp {
             ${def.isBossLevel ? '⚔️ BOSS • ' : ''}${def.difficultyLabel}
           </span>
         </div>
+        ${
+          isDiscount
+            ? `<div class="flash-event-banner" style="border-color:#38bdf8;"><span>🔨 <b>BUILD RUSH 30% OFF</b> on all upgrades!</span><span id="flash-event-timer" style="color:#38bdf8;">${this.formatMmSs(flash.remainingMs)}</span></div>`
+            : ''
+        }
         <div style="display:flex;justify-content:space-between;font-size:11px;color:#c7b8e8;font-weight:700;">
           <span>Stars: <b style="color:#ffd166;">${stars}/${STARS_PER_VILLAGE} ★</b> • Win Mult: <b style="color:#06d6a0;">${mult}x</b></span>
-          <span>Difficulty: <b style="color:${def.difficultyColor};">${def.difficultyFactor}x Harder</b></span>
+          <span>${upgradesLeft === 0 ? '<b style="color:#06d6a0;">🎉 Ready for Next World!</b>' : `<b style="color:#ffd166;">Only ${upgradesLeft} upgrade${upgradesLeft === 1 ? '' : 's'} to World ${def.level + 1}!</b>`}</span>
         </div>
         <div class="vip-progress-track">
           <div class="vip-progress-fill" style="width:${pct}%;"></div>
@@ -2340,7 +2431,7 @@ class FairCoinSlotsApp {
           <div style="background:rgba(6,214,160,0.16);border:1.5px solid #06d6a0;border-radius:12px;padding:10px;text-align:center;">
             <div style="font-size:13px;font-weight:900;color:#06d6a0;">🎉 World ${def.level} Ready to Complete!</div>
             <div style="font-size:11px;color:#fff8f0;margin:4px 0 8px;">
-              Reward: <b>🪙 +${formatCoins(def.completionCoins)}</b>, <b>🎡 +${def.completionSpins} Spins</b>, <b>🎁 +${def.completionChests} Chests</b>${def.completionJoker ? ' & <b>🃏 +1 Joker</b>' : ''}
+              Reward: <b>🪙 +${formatCoins(def.completionCoins)}</b>, <b>🎟️ +${def.completionSpins} Free Spins</b>, <b>🥉 +${def.completionChests}</b>, <b>🥈 +${def.completionSilverPacks}</b>${def.completionGoldPacks > 0 ? `, <b>🥇 +${def.completionGoldPacks}</b>` : ''}${def.completionJoker ? ' & <b>🃏 +1 Joker</b>' : ''}
             </div>
             <button class="action-btn green" id="btn-complete-world">🚀 Advance to World ${def.level + 1}!</button>
           </div>
@@ -2351,7 +2442,7 @@ class FairCoinSlotsApp {
           .map((b, idx) => {
             const curStar = this.state.villageStars[idx] ?? 0;
             const isMax = curStar >= STARS_PER_BUILDING;
-            const cost = getVillageBuildingUpgradeCost(def.level, idx, curStar);
+            const cost = getVillageBuildingUpgradeCost(def.level, idx, curStar, discountFactor);
             const canAfford = this.state.coins >= cost;
             const pips = Array.from(
               { length: STARS_PER_BUILDING },
@@ -2361,11 +2452,11 @@ class FairCoinSlotsApp {
               <div class="building-row">
                 <div class="building-icon">${b.emoji}</div>
                 <div class="building-info">
-                  <strong>${b.name} (${curStar}/${STARS_PER_BUILDING}★)</strong>
+                  <strong>${b.name} (Lv.${curStar}/${STARS_PER_BUILDING})</strong>
                   <div class="star-pip-row">${pips}</div>
                 </div>
                 <button class="action-btn ${canAfford && !isMax ? '' : 'secondary'}" data-world-build="${idx}" ${isMax || !canAfford ? 'disabled' : ''}>
-                  ${isMax ? '5★ MAX' : `🪙 ${formatCoins(cost)}`}
+                  ${isMax ? '5★ MAX' : `${isDiscount ? '🏷️ ' : '🪙 '}${formatCoins(cost)}`}
                 </button>
               </div>
             `;
@@ -2388,27 +2479,44 @@ class FairCoinSlotsApp {
         if (idx < 0 || idx >= BUILDINGS_PER_VILLAGE) return;
         const curStar = this.state.villageStars[idx] ?? 0;
         if (curStar >= STARS_PER_BUILDING) return;
-        const cost = getVillageBuildingUpgradeCost(this.state.villageLevel, idx, curStar);
+        const discountFactor = this.getFlashEvent().event.id === 'build_discount' ? 0.7 : 1;
+        const cost = getVillageBuildingUpgradeCost(this.state.villageLevel, idx, curStar, discountFactor);
         if (this.state.coins < cost) return;
 
         this.state.coins -= cost;
         const nextStars = [...this.state.villageStars];
-        nextStars[idx] = curStar + 1;
+        const nextLevel = curStar + 1;
+        nextStars[idx] = nextLevel;
         this.state.villageStars = nextStars;
         this.state.totalStarsEarned += 1;
         incrementQuest(this.state, 'upgrades', 1);
         addClubActivityPoints(this.state, 28);
+
+        let maxOutMsg = '';
+        if (nextLevel >= STARS_PER_BUILDING) {
+          if (idx >= 3) {
+            this.state.silverPacks += 1;
+            maxOutMsg = ' • +1 🥈 Silver Card Pack!';
+          } else {
+            this.state.chests += 1;
+            maxOutMsg = ' • +1 🥉 Bronze Card Pack!';
+          }
+          this.triggerScreenShake();
+          this.spawnConfettiBurst(24);
+        }
+
         const xpRes = grantXp(this.state, 115 + Math.floor(this.state.villageLevel / 5) * 15);
         saveGameState(this.state);
 
-        this.sfx.playUpgrade();
-        this.spawnCoinShower(10);
+        // Rising pitch-shift sound with building level 1 -> 5
+        this.sfx.playUpgradePitch(nextLevel);
+        this.spawnCoinShower(12);
         const def = getVillageDef(this.state.villageLevel);
         const bName = def.buildings[idx]?.name ?? 'Building';
         this.showToast(
           xpRes.leveledUp
-            ? `🆙 Level ${xpRes.newLevel}! ${bName} → ${curStar + 1}★!`
-            : `🔨 ${bName} upgraded to ${curStar + 1}★! (+28 Club Pts)`
+            ? `🆙 Level ${xpRes.newLevel}! ${bName} → ${nextLevel}★${maxOutMsg}`
+            : `🔨 ${bName} → Lv.${nextLevel}/5★${maxOutMsg || ' (+28 Club Pts)'}`
         );
         this.renderAll();
       });
@@ -2421,8 +2529,11 @@ class FairCoinSlotsApp {
 
       this.state.coins += def.completionCoins;
       this.state.totalWon += def.completionCoins;
-      this.state.wheelSpins += def.completionSpins;
+      this.state.freeSpins += def.completionSpins;
+      this.state.wheelSpins += 10;
       this.state.chests += def.completionChests;
+      this.state.silverPacks += def.completionSilverPacks;
+      this.state.goldPacks += def.completionGoldPacks;
       this.state.gashaponTokens += def.completionTokens;
       if (def.completionJoker) this.state.jokerCards += 1;
 
@@ -2446,13 +2557,15 @@ class FairCoinSlotsApp {
       ].slice(0, 8);
 
       saveGameState(this.state);
-      this.sfx.playBigWin();
-      this.spawnCoinShower(28);
-      this.spawnCoinFountain(24);
-      this.spawnConfettiBurst(36);
+      this.sfx.playWorldComplete();
+      this.triggerScreenShake();
+      this.spawnCoinShower(32);
+      this.spawnCoinFountain(26);
+      this.spawnConfettiBurst(42);
       const nextDef = getVillageDef(this.state.villageLevel);
       this.showToast(`🏆 World ${def.level} cleared! Welcome to World ${nextDef.level}: ${nextDef.title}!`);
       this.renderAll();
+      this.showWorldTransitionModal(def, nextDef);
     });
   }
 
@@ -3487,16 +3600,69 @@ class FairCoinSlotsApp {
 
   private renderCardsAndQuestsBody(body: HTMLElement): void {
     const ownedUnique = CARDS.filter((c) => (this.state.cards[c.id] ?? 0) > 0).length;
-    const cardsBoom = getActiveFlashEvent().event.id === 'cards_boom';
+    const albumPct = Math.round((ownedUnique / CARDS.length) * 100);
+    const albumFull = ownedUnique >= CARDS.length;
+    const flash = this.getFlashEvent();
+    const cardsBoom = flash.event.id === 'cards_boom';
+    const mult = cardsBoom ? 2 : 1;
+
     body.innerHTML = `
-      <div class="card">
-        <h2>🎁 Treasure Chests & Cards (${ownedUnique}/${CARDS.length})</h2>
-        <p style="font-size:12px;">
-          ${cardsBoom ? '🃏 <b style="color:#c084fc;">CARDS BOOM ACTIVE:</b> Opening a chest drops <b>4 cards</b> instead of 3!' : 'Open chests for album cards. Duplicate cards automatically fill your Star Vault!'}
+      <div class="flash-event-banner" style="border-color:${flash.event.color};">
+        <span>${flash.event.emoji} <b>${flash.event.name}:</b> ${flash.event.desc}</span>
+        <span style="color:${flash.event.color};white-space:nowrap;" id="flash-event-timer">${this.formatMmSs(flash.remainingMs)}</span>
+      </div>
+
+      <div class="card vip-pass-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+          <h2>📚 Fox Card Album (${ownedUnique}/${CARDS.length})</h2>
+          <span class="vip-price-tag" style="background:${this.state.albumCompleted ? '#06d6a0' : '#ffd166'};color:#120826;">
+            ${this.state.albumCompleted ? ALBUM_MASTER_REWARD.badge : `${CARD_SETS.length} Sets • 9 Cards Each`}
+          </span>
+        </div>
+        <div class="vip-progress-track">
+          <div class="vip-progress-fill" style="width:${albumPct}%;"></div>
+        </div>
+        <p style="font-size:11px;">
+          Complete all <b>${CARD_SETS.length} sets (${CARDS.length} cards)</b> to unlock <b>${ALBUM_MASTER_REWARD.badge}</b> + Golden Crown & Rainbow Aura + <b>🪙 ${formatCoins(ALBUM_MASTER_REWARD.coins)}</b> + <b>🎟️ ${ALBUM_MASTER_REWARD.freeSpins} Spins</b>!
         </p>
-        <button class="action-btn" id="btn-open-chest" ${this.state.chests <= 0 ? 'disabled' : ''}>
-          🎁 Open Chest (${this.state.chests} left • ${cardsBoom ? '4' : '3'} cards)
-        </button>
+        ${
+          albumFull && !this.state.albumCompleted
+            ? `<button class="action-btn green" id="btn-claim-album">🏆 Claim Grand Album Reward (${formatCoins(ALBUM_MASTER_REWARD.coins)} + ${ALBUM_MASTER_REWARD.freeSpins} Spins!)</button>`
+            : ''
+        }
+      </div>
+
+      <div class="card">
+        <h2>🎁 Card Packs (1★–5★ Rarity)</h2>
+        <p style="font-size:12px;">
+          ${cardsBoom ? '🃏 <b style="color:#c084fc;">2x CARDS EVENT ACTIVE:</b> All packs drop <b>DOUBLE CARDS</b> right now!' : 'Earn Bronze, Silver & Gold packs by maxing World buildings (5★), winning slots & completing quests!'}
+        </p>
+        <div class="pack-tier-grid">
+          <div class="pack-tier-card ${this.state.chests > 0 ? 'ready' : ''}" style="border-color:${CARD_PACK_DEFS.bronze.accent};">
+            <div style="font-size:24px;">${CARD_PACK_DEFS.bronze.emoji}</div>
+            <strong style="font-size:11px;">Bronze Pack</strong>
+            <small style="color:#c7b8e8;font-size:10px;">${CARD_PACK_DEFS.bronze.cardCount * mult} Cards</small>
+            <button class="action-btn ${this.state.chests > 0 ? '' : 'secondary'}" data-open-pack="bronze" ${this.state.chests <= 0 ? 'disabled' : ''} style="font-size:11px;padding:6px 8px;width:100%;">
+              Open (${this.state.chests})
+            </button>
+          </div>
+          <div class="pack-tier-card ${this.state.silverPacks > 0 ? 'ready' : ''}" style="border-color:${CARD_PACK_DEFS.silver.accent};">
+            <div style="font-size:24px;">${CARD_PACK_DEFS.silver.emoji}</div>
+            <strong style="font-size:11px;">Silver Pack</strong>
+            <small style="color:#c7b8e8;font-size:10px;">${CARD_PACK_DEFS.silver.cardCount * mult} Cards • 3★+</small>
+            <button class="action-btn ${this.state.silverPacks > 0 ? 'green' : 'secondary'}" data-open-pack="silver" ${this.state.silverPacks <= 0 ? 'disabled' : ''} style="font-size:11px;padding:6px 8px;width:100%;">
+              Open (${this.state.silverPacks})
+            </button>
+          </div>
+          <div class="pack-tier-card ${this.state.goldPacks > 0 ? 'ready' : ''}" style="border-color:${CARD_PACK_DEFS.gold.accent};">
+            <div style="font-size:24px;">${CARD_PACK_DEFS.gold.emoji}</div>
+            <strong style="font-size:11px;">Gold Pack</strong>
+            <small style="color:#ffd166;font-size:10px;">${CARD_PACK_DEFS.gold.cardCount * mult} Cards • 4★+</small>
+            <button class="action-btn ${this.state.goldPacks > 0 ? '' : 'secondary'}" data-open-pack="gold" ${this.state.goldPacks <= 0 ? 'disabled' : ''} style="font-size:11px;padding:6px 8px;width:100%;">
+              Open (${this.state.goldPacks})
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="card vip-pass-card">
@@ -3504,16 +3670,16 @@ class FairCoinSlotsApp {
           <h3>⭐ Duplicate Star Vault</h3>
           <span class="vip-price-tag">⭐ ${this.state.duplicateStars} • 🃏 ${this.state.jokerCards} Jokers</span>
         </div>
-        <p style="font-size:11px;">Duplicate cards convert into Stars (★). Trade Stars for giant coin packs or rare Joker Wild Cards! Tap <b>🃏 Use Joker</b> on any missing card below.</p>
+        <p style="font-size:11px;">Duplicate cards turn into <b>Vault Stars (★)</b>! Spend Stars to open a <b>Guaranteed New Card Chest</b> or claim Coins & Jokers.</p>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
-          <button class="action-btn secondary" data-star-swap="15" ${this.state.duplicateStars < 15 ? 'disabled' : ''} style="font-size:11px;padding:8px 4px;">
-            15 ⭐<br/>300M + 2🎁
+          <button class="action-btn secondary" data-star-swap="20" ${this.state.duplicateStars < 20 ? 'disabled' : ''} style="font-size:11px;padding:8px 4px;">
+            20 ⭐<br/>300M + 2🥈
           </button>
-          <button class="action-btn secondary" data-star-swap="35" ${this.state.duplicateStars < 35 ? 'disabled' : ''} style="font-size:11px;padding:8px 4px;">
-            35 ⭐<br/>1B + 🫧 + 5🍖
+          <button class="action-btn green" data-star-swap="45" ${this.state.duplicateStars < 45 ? 'disabled' : ''} style="font-size:11px;padding:8px 4px;">
+            45 ⭐<br/>✨ New Card Pack!
           </button>
-          <button class="action-btn green" data-star-swap="60" ${this.state.duplicateStars < 60 ? 'disabled' : ''} style="font-size:11px;padding:8px 4px;">
-            60 ⭐<br/>+1 🃏 Joker
+          <button class="action-btn" data-star-swap="75" ${this.state.duplicateStars < 75 ? 'disabled' : ''} style="font-size:11px;padding:8px 4px;">
+            75 ⭐<br/>+1 🃏 Joker
           </button>
         </div>
       </div>
@@ -3540,15 +3706,27 @@ class FairCoinSlotsApp {
       ${CARD_SETS.map((set) => {
         const setCards = CARDS.filter((c) => c.setId === set.id);
         const ownedInSet = setCards.filter((c) => (this.state.cards[c.id] ?? 0) > 0).length;
+        const missingCount = setCards.length - ownedInSet;
+        const setPct = Math.round((ownedInSet / setCards.length) * 100);
         const setComplete = ownedInSet === setCards.length;
         const alreadyClaimed = this.state.claimedSets.includes(set.id);
         return `
           <div class="card">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <h3>${set.emoji} ${set.name} (${ownedInSet}/${setCards.length})</h3>
-              <button class="action-btn" data-claim-set="${set.id}" ${!setComplete || alreadyClaimed ? 'disabled' : ''}>
-                ${alreadyClaimed ? 'Complete ✓' : `Claim ${formatCoins(set.rewardCoins)}`}
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+              <div>
+                <h3>${set.emoji} ${set.name} (${ownedInSet}/${setCards.length})</h3>
+                ${
+                  !setComplete && ownedInSet >= 6
+                    ? `<span class="near-miss-badge">🔥 Almost complete! Only ${missingCount} left!</span>`
+                    : ''
+                }
+              </div>
+              <button class="action-btn ${setComplete && !alreadyClaimed ? 'green' : ''}" data-claim-set="${set.id}" ${!setComplete || alreadyClaimed ? 'disabled' : ''} style="font-size:11px;">
+                ${alreadyClaimed ? 'Complete ✓' : `🪙 ${formatCoins(set.rewardCoins)} + ${set.rewardSpins}🎟️`}
               </button>
+            </div>
+            <div class="vip-progress-track">
+              <div class="vip-progress-fill" style="width:${setPct}%;background:${set.color};"></div>
             </div>
             <div class="cards-grid">
               ${setCards
@@ -3559,7 +3737,7 @@ class FairCoinSlotsApp {
                     <div class="collect-card ${count > 0 ? 'owned' : 'missing'}" ${canJoker ? 'style="opacity:0.9;filter:none;border-color:#06d6a0;"' : ''}>
                       <div class="c-emoji">${c.emoji}</div>
                       <div class="c-name">${c.name}</div>
-                      <div class="c-count">${count > 0 ? `${count}x • ${'★'.repeat(c.stars)}` : `${c.rarity} • ${'★'.repeat(c.stars)}`}</div>
+                      <div class="c-count">${count > 0 ? `${count}x • ${'★'.repeat(c.stars)}` : `${c.isChaseCard ? 'RARE ' : ''}${'★'.repeat(c.stars)}`}</div>
                       ${
                         canJoker
                           ? `<button class="action-btn green" data-use-joker="${c.id}" style="margin-top:4px;padding:3px 6px;font-size:10px;width:100%;">🃏 Use Joker</button>`
@@ -3575,20 +3753,61 @@ class FairCoinSlotsApp {
       }).join('')}
     `;
 
-    body.querySelector('#btn-open-chest')?.addEventListener('click', () => {
-      if (this.state.chests <= 0) return;
-      this.state.chests -= 1;
-      const prevStars = this.state.duplicateStars;
-      const cardCount = getActiveFlashEvent().event.id === 'cards_boom' ? 4 : 3;
-      const drawn = openCardChest(this.state, cardCount);
-      const starsGained = this.state.duplicateStars - prevStars;
+    body.querySelector('#btn-claim-album')?.addEventListener('click', () => {
+      if (!albumFull || this.state.albumCompleted) return;
+      this.state.albumCompleted = true;
+      this.state.coins += ALBUM_MASTER_REWARD.coins;
+      this.state.totalWon += ALBUM_MASTER_REWARD.coins;
+      this.state.freeSpins += ALBUM_MASTER_REWARD.freeSpins;
+      this.state.goldPacks += ALBUM_MASTER_REWARD.goldPacks;
+      this.state.jokerCards += ALBUM_MASTER_REWARD.jokers;
+      this.state.ownedShopItems = Array.from(new Set([...this.state.ownedShopItems, 'hat_crown', 'aura_rainbow', 'out_goldsuit']));
+      this.state.character.hatId = 'hat_crown';
+      this.state.character.auraId = 'aura_rainbow';
       saveGameState(this.state);
-      this.sfx.playBigWin();
-      if (starsGained > 0) {
-        this.showToast(`⭐ Duplicates converted to +${starsGained} Vault Stars!`);
-      }
-      this.showChestModal(drawn, starsGained);
+      this.syncCharacterRenderers();
+      this.sfx.playWorldComplete();
+      this.triggerScreenShake();
+      this.spawnCoinShower(34);
+      this.spawnCoinFountain(28);
+      this.spawnConfettiBurst(48);
+      this.showToast(`👑 ${ALBUM_MASTER_REWARD.badge} unlocked! +${formatCoins(ALBUM_MASTER_REWARD.coins)} & +${ALBUM_MASTER_REWARD.freeSpins} Spins!`);
       this.renderAll();
+    });
+
+    body.querySelectorAll<HTMLButtonElement>('[data-open-pack]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const tier = btn.dataset.openPack as CardPackTier;
+        if (tier === 'bronze') {
+          if (this.state.chests <= 0) return;
+          this.state.chests -= 1;
+        } else if (tier === 'silver') {
+          if (this.state.silverPacks <= 0) return;
+          this.state.silverPacks -= 1;
+        } else {
+          if (this.state.goldPacks <= 0) return;
+          this.state.goldPacks -= 1;
+        }
+        const prevStars = this.state.duplicateStars;
+        const baseCount = CARD_PACK_DEFS[tier].cardCount;
+        const cardCount = this.getFlashEvent().event.id === 'cards_boom' ? baseCount * 2 : baseCount;
+        const drawn = openCardChest(this.state, cardCount, tier, 0);
+        const starsGained = this.state.duplicateStars - prevStars;
+        const newCount = drawn.filter((d) => d.isNew).length;
+        saveGameState(this.state);
+        if (tier === 'gold' || newCount > 0) {
+          this.sfx.playNewCardChime(Math.max(...drawn.map((d) => d.stars)), newCount > 0);
+          if (tier === 'gold') this.triggerScreenShake();
+          this.spawnConfettiBurst(newCount > 0 ? 24 : 10);
+        } else {
+          this.sfx.playCoin();
+        }
+        if (starsGained > 0) {
+          this.showToast(`⭐ Duplicates added +${starsGained} Stars to Vault!`);
+        }
+        this.showChestModal(drawn, starsGained, CARD_PACK_DEFS[tier].name);
+        this.renderAll();
+      });
     });
 
     body.querySelectorAll<HTMLButtonElement>('[data-star-swap]').forEach((btn) => {
@@ -3599,25 +3818,30 @@ class FairCoinSlotsApp {
           return;
         }
         this.state.duplicateStars -= cost;
-        if (cost === 15) {
+        if (cost === 20) {
           this.state.coins += 300_000_000;
           this.state.totalWon += 300_000_000;
-          this.state.chests += 2;
-          this.showToast('⭐ Vault Trade: +300M Coins & +2 Chests!');
-        } else if (cost === 35) {
-          this.state.coins += 1_000_000_000;
-          this.state.totalWon += 1_000_000_000;
-          this.state.gashaponTokens += 1;
-          this.state.petTreats += 5;
-          this.showToast('⭐ Vault Trade: +1B Coins, +1 🫧 Token & +5 🍖 Treats!');
+          this.state.silverPacks += 2;
+          saveGameState(this.state);
+          this.sfx.playBigWin();
+          this.spawnCoinShower(16);
+          this.showToast('⭐ Vault Trade: +300M Coins & +2 🥈 Silver Packs!');
+        } else if (cost === 45) {
+          const prevStars = this.state.duplicateStars;
+          const drawn = openCardChest(this.state, 4, 'silver', 2);
+          const starsGained = this.state.duplicateStars - prevStars;
+          saveGameState(this.state);
+          this.sfx.playNewCardChime(5, true);
+          this.triggerScreenShake();
+          this.spawnConfettiBurst(28);
+          this.showChestModal(drawn, starsGained, '✨ Guaranteed New Card Pack');
         } else {
           this.state.jokerCards += 1;
+          saveGameState(this.state);
+          this.sfx.playUpgradePitch(4);
+          this.spawnConfettiBurst(20);
           this.showToast('⭐ Vault Trade: +1 🃏 Joker Wild Card!');
         }
-        saveGameState(this.state);
-        this.sfx.playBigWin();
-        this.spawnCoinShower(16);
-        this.spawnConfettiBurst(20);
         this.renderAll();
       });
     });
@@ -3630,7 +3854,7 @@ class FairCoinSlotsApp {
         this.state.jokerCards -= 1;
         this.state.cards[cardId] = 1;
         saveGameState(this.state);
-        this.sfx.playUpgrade();
+        this.sfx.playNewCardChime(card.stars, true);
         this.spawnConfettiBurst(22);
         this.showToast(`🃏 Joker Card unlocked ${card.emoji} ${card.name}!`);
         this.renderAll();
@@ -3649,7 +3873,7 @@ class FairCoinSlotsApp {
         saveGameState(this.state);
         this.sfx.playUpgrade();
         this.spawnCoinShower(12);
-        this.showToast(`✅ Quest claimed: +${formatCoins(q.rewardCoins)} & +${q.rewardChests} chest!`);
+        this.showToast(`✅ Quest claimed: +${formatCoins(q.rewardCoins)} & +${q.rewardChests} Bronze Packs!`);
         this.renderAll();
       });
     });
@@ -3663,10 +3887,14 @@ class FairCoinSlotsApp {
         if (!setCards.every((c) => (this.state.cards[c.id] ?? 0) > 0)) return;
         this.state.claimedSets.push(setId);
         this.state.coins += set.rewardCoins;
+        this.state.totalWon += set.rewardCoins;
+        this.state.freeSpins += set.rewardSpins;
         saveGameState(this.state);
-        this.sfx.playBigWin();
-        this.spawnCoinShower(25);
-        this.showToast(`🎉 '${set.name}' set complete! +${formatCoins(set.rewardCoins)} coins!`);
+        this.sfx.playWorldComplete();
+        this.triggerScreenShake();
+        this.spawnCoinShower(28);
+        this.spawnConfettiBurst(34);
+        this.showToast(`🎉 '${set.name}' Complete! +${formatCoins(set.rewardCoins)} & +${set.rewardSpins} Free Spins!`);
         this.renderAll();
       });
     });
@@ -4228,6 +4456,55 @@ class FairCoinSlotsApp {
     this.wheelRafId = requestAnimationFrame(step);
   }
 
+  private performFullReset(): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    this.spinToken += 1;
+    this.isSpinning = false;
+    this.autoSpin = false;
+    this.winCombo = 0;
+    if (this.autoSpinTimer !== null) {
+      window.clearTimeout(this.autoSpinTimer);
+      this.autoSpinTimer = null;
+    }
+    if (this.moodTimer !== null) {
+      window.clearTimeout(this.moodTimer);
+      this.moodTimer = null;
+    }
+    if (this.wheelRafId !== null) {
+      cancelAnimationFrame(this.wheelRafId);
+      this.wheelRafId = null;
+    }
+    this.wheelSpinning = false;
+    this.isLuckWheelSpin = false;
+    this.wheelPendingSettle = null;
+    this.wheelAngle = 0;
+    this.cleanupSubCanvas();
+    this.winningCells.clear();
+    this.winningLines = [];
+    this.lastGambleAmount = 0;
+    this.vaultActive = false;
+    this.vaultStep = 0;
+    this.hiloActive = false;
+    this.hiloStreak = 0;
+    this.hiloMult = 1.0;
+    this.kenoDrawn = [];
+    this.rouletteLastNum = null;
+    document.querySelectorAll('.frenzy-balloon').forEach((b) => b.remove());
+
+    localStorage.removeItem('fair_coin_slots_state_v2');
+    localStorage.removeItem('fair_coin_slots_state_v1');
+    this.state = loadGameState(this.state.deviceId);
+    this.currentGrid = this.buildInitialGrid(this.getActiveMachine());
+    this.resetScratchBoard();
+    this.resetRaidBoard();
+    saveGameState(this.state);
+    this.syncCharacterRenderers();
+    this.sfx.playTap();
+    backdrop.classList.add('hidden');
+    this.showToast('Progress reset to 1.5B starter coins!');
+    this.renderAll();
+  }
+
   private openInfoModal(): void {
     const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
     const box = this.root.querySelector<HTMLElement>('#modal-box')!;
@@ -4239,7 +4516,7 @@ class FairCoinSlotsApp {
         <h2 style="margin:0;color:#ffd166;">ℹ️ Fair Coin Slots</h2>
         <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">
           <b>Fair Coin Slots — Social Casino & Arcade</b><br/>
-          <span style="color:#c7b8e8;">Spin themed slot machines, play arcade tables, collect album cards, and upgrade your VIP club.</span>
+          <span style="color:#c7b8e8;">Spin themed slot machines, play arcade tables, collect 90 album cards across 10 sets, and climb 550+ Worlds with your Fox Club.</span>
         </p>
         <div style="background:rgba(255,255,255,0.06);border-radius:12px;padding:10px;font-size:12px;color:#c7b8e8;display:flex;flex-direction:column;gap:4px;">
           <div>Session: <b>${sessionMins}m</b> • Break tip every <b>${this.state.reminderMinutes}m</b></div>
@@ -4247,6 +4524,7 @@ class FairCoinSlotsApp {
         </div>
         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
           <button class="action-btn secondary" id="info-toggle-reminder">Reminder: ${this.state.reminderMinutes}m</button>
+          <button class="action-btn secondary" id="info-open-debug">🛠️ Debug Menu</button>
           <button class="action-btn pink" id="info-reset-game">Reset Progress</button>
         </div>
         <button class="action-btn green" id="info-close">Close</button>
@@ -4262,52 +4540,12 @@ class FairCoinSlotsApp {
         renderInfo();
       });
 
-      box.querySelector('#info-reset-game')?.addEventListener('click', () => {
-        this.spinToken += 1;
-        this.isSpinning = false;
-        this.autoSpin = false;
-        if (this.autoSpinTimer !== null) {
-          window.clearTimeout(this.autoSpinTimer);
-          this.autoSpinTimer = null;
-        }
-        if (this.moodTimer !== null) {
-          window.clearTimeout(this.moodTimer);
-          this.moodTimer = null;
-        }
-        if (this.wheelRafId !== null) {
-          cancelAnimationFrame(this.wheelRafId);
-          this.wheelRafId = null;
-        }
-        this.wheelSpinning = false;
-        this.isLuckWheelSpin = false;
-        this.wheelPendingSettle = null;
-        this.wheelAngle = 0;
-        this.cleanupSubCanvas();
-        this.winningCells.clear();
-        this.winningLines = [];
-        this.lastGambleAmount = 0;
-        this.vaultActive = false;
-        this.vaultStep = 0;
-        this.hiloActive = false;
-        this.hiloStreak = 0;
-        this.hiloMult = 1.0;
-        this.kenoDrawn = [];
-        this.rouletteLastNum = null;
-        document.querySelectorAll('.frenzy-balloon').forEach((b) => b.remove());
-
-        localStorage.removeItem('fair_coin_slots_state_v2');
-        localStorage.removeItem('fair_coin_slots_state_v1');
-        this.state = loadGameState(this.state.deviceId);
-        this.currentGrid = this.buildInitialGrid(this.getActiveMachine());
-        this.resetScratchBoard();
-        this.resetRaidBoard();
-        saveGameState(this.state);
-        this.syncCharacterRenderers();
+      box.querySelector('#info-open-debug')?.addEventListener('click', () => {
         this.sfx.playTap();
-        backdrop.classList.add('hidden');
-        this.showToast('Progress reset to 1.5B starter coins!');
-        this.renderAll();
+        this.openDebugModal();
       });
+
+      box.querySelector('#info-reset-game')?.addEventListener('click', () => this.performFullReset());
 
       box.querySelector('#info-close')?.addEventListener('click', () => {
         backdrop.classList.add('hidden');
@@ -4316,6 +4554,104 @@ class FairCoinSlotsApp {
     };
 
     renderInfo();
+  }
+
+  private openDebugModal(): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    const renderDebug = () => {
+      const ownedUnique = CARDS.filter((c) => (this.state.cards[c.id] ?? 0) > 0).length;
+      box.innerHTML = `
+        <h2 style="margin:0;color:#4cc9f0;">🛠️ Developer Debug Menu</h2>
+        <div style="font-size:11px;color:#c7b8e8;">
+          World Lv.<b>${this.state.villageLevel}</b> • Coins: <b>${formatCoins(this.state.coins)}</b> • Spins: <b>${this.state.freeSpins}</b> • Cards: <b>${ownedUnique}/${CARDS.length}</b>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;">
+          <button class="action-btn" id="dbg-coins-1b">+1B Coins</button>
+          <button class="action-btn" id="dbg-coins-100b">+100B Coins</button>
+          <button class="action-btn green" id="dbg-spins-50">+50 Free Spins</button>
+          <button class="action-btn green" id="dbg-wheel-50">+50 Wheel Spins</button>
+          <button class="action-btn secondary" id="dbg-packs">+3 Each Card Pack</button>
+          <button class="action-btn secondary" id="dbg-stars">+100⭐ & +2 Jokers</button>
+          <button class="action-btn" id="dbg-world-max">Max World (25★)</button>
+          <button class="action-btn" id="dbg-world-10">+10 World Levels</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;background:rgba(255,255,255,0.06);padding:8px;border-radius:10px;">
+          <div style="font-size:11px;font-weight:800;color:#ffd166;">Force Flash Event:</div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center;">
+            <button class="subtab-btn ${!this.state.debugEventOverride ? 'active' : ''}" data-dbgev="">Auto</button>
+            <button class="subtab-btn ${this.state.debugEventOverride === 'cards_boom' ? 'active' : ''}" data-dbgev="cards_boom">🃏 2x Cards</button>
+            <button class="subtab-btn ${this.state.debugEventOverride === 'build_discount' ? 'active' : ''}" data-dbgev="build_discount">🔨 30% Off</button>
+            <button class="subtab-btn ${this.state.debugEventOverride === 'cash_frenzy' ? 'active' : ''}" data-dbgev="cash_frenzy">💰 Cash+35%</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:center;">
+          <button class="action-btn pink" id="dbg-reset" style="flex:1;">Reset Save</button>
+          <button class="action-btn green" id="dbg-close" style="flex:1;">Done</button>
+        </div>
+      `;
+
+      const commit = (toastMsg: string) => {
+        saveGameState(this.state);
+        this.sfx.playCoin();
+        this.renderAll();
+        this.showToast(toastMsg);
+        renderDebug();
+      };
+
+      box.querySelector('#dbg-coins-1b')?.addEventListener('click', () => {
+        this.state.coins += 1_000_000_000;
+        commit('🛠️ +1B Coins added');
+      });
+      box.querySelector('#dbg-coins-100b')?.addEventListener('click', () => {
+        this.state.coins += 100_000_000_000;
+        commit('🛠️ +100B Coins added');
+      });
+      box.querySelector('#dbg-spins-50')?.addEventListener('click', () => {
+        this.state.freeSpins += 50;
+        commit('🛠️ +50 Free Spins added');
+      });
+      box.querySelector('#dbg-wheel-50')?.addEventListener('click', () => {
+        this.state.wheelSpins += 50;
+        commit('🛠️ +50 Wheel Spins added');
+      });
+      box.querySelector('#dbg-packs')?.addEventListener('click', () => {
+        this.state.chests += 3;
+        this.state.silverPacks += 3;
+        this.state.goldPacks += 3;
+        commit('🛠️ +3 Bronze, +3 Silver & +3 Gold Packs!');
+      });
+      box.querySelector('#dbg-stars')?.addEventListener('click', () => {
+        this.state.duplicateStars += 100;
+        this.state.jokerCards += 2;
+        commit('🛠️ +100 Vault Stars & +2 Jokers!');
+      });
+      box.querySelector('#dbg-world-max')?.addEventListener('click', () => {
+        this.state.villageStars = Array(BUILDINGS_PER_VILLAGE).fill(STARS_PER_BUILDING);
+        commit(`🛠️ World ${this.state.villageLevel} maxed at 25/25★!`);
+      });
+      box.querySelector('#dbg-world-10')?.addEventListener('click', () => {
+        this.state.villageLevel = Math.min(TOTAL_WORLD_LEVELS, this.state.villageLevel + 10);
+        this.state.villageStars = Array(BUILDINGS_PER_VILLAGE).fill(0);
+        commit(`🛠️ Warped to World ${this.state.villageLevel}!`);
+      });
+      box.querySelectorAll<HTMLButtonElement>('[data-dbgev]').forEach((b) => {
+        b.addEventListener('click', () => {
+          const ev = b.dataset.dbgev || null;
+          this.state.debugEventOverride = ev as GameState['debugEventOverride'];
+          commit(ev ? `🛠️ Forced event: ${ev}` : '🛠️ Event schedule set to Auto');
+        });
+      });
+      box.querySelector('#dbg-reset')?.addEventListener('click', () => this.performFullReset());
+      box.querySelector('#dbg-close')?.addEventListener('click', () => {
+        backdrop.classList.add('hidden');
+        this.sfx.playTap();
+      });
+    };
+
+    renderDebug();
   }
 
   private openVipConfirmModal(step: 1 | 2 | 3 | 4): void {
@@ -4656,21 +4992,22 @@ class FairCoinSlotsApp {
     });
   }
 
-  private showChestModal(drawn: { emoji: string; name: string; rarity: string }[], starsGained = 0): void {
+  private showChestModal(drawn: DrawnCardResult[], starsGained = 0, packTitle = 'Card Pack'): void {
     const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
     const box = this.root.querySelector<HTMLElement>('#modal-box')!;
     backdrop.classList.remove('hidden');
 
     box.innerHTML = `
-      <h2 style="margin:0;color:#ffd166;">🎁 Chest Opened!</h2>
+      <h2 style="margin:0;color:#ffd166;">🎁 ${packTitle} Opened!</h2>
       <div class="cards-grid">
         ${drawn
           .map(
             (c) => `
-          <div class="collect-card owned">
+          <div class="collect-card owned" ${c.isNew ? 'style="border-color:#06d6a0;box-shadow:0 0 10px rgba(6,214,160,0.45);"' : ''}>
             <div class="c-emoji">${c.emoji}</div>
             <div class="c-name">${c.name}</div>
-            <div class="c-count">${c.rarity}</div>
+            <div class="c-count">${'★'.repeat(c.stars)} • ${c.rarity}</div>
+            ${c.isNew ? '<span class="new-card-tag">NEW!</span>' : ''}
           </div>
         `
           )
@@ -4685,6 +5022,36 @@ class FairCoinSlotsApp {
     `;
 
     box.querySelector('#close-chest-modal')?.addEventListener('click', () => {
+      backdrop.classList.add('hidden');
+      this.sfx.playTap();
+    });
+  }
+
+  private showWorldTransitionModal(
+    cleared: ReturnType<typeof getVillageDef>,
+    nextWorld: ReturnType<typeof getVillageDef>
+  ): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    box.innerHTML = `
+      <h2 style="margin:0;color:#06d6a0;">🏆 World ${cleared.level} Completed!</h2>
+      <div style="font-size:44px;line-height:1.1;">${cleared.biome.emoji} ➡️ ${nextWorld.biome.emoji}</div>
+      <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">
+        You mastered <b>${cleared.title}</b> and unlocked<br/>
+        <b style="color:#ffd166;">World ${nextWorld.level}: ${nextWorld.title}</b>!
+      </p>
+      <div style="background:rgba(6,214,160,0.14);border:1.5px solid #06d6a0;border-radius:14px;padding:10px;font-size:12px;font-weight:800;color:#ffd166;display:flex;flex-direction:column;gap:4px;">
+        <div>🪙 +${formatCoins(cleared.completionCoins)} Coins</div>
+        <div>🎟️ +${cleared.completionSpins} Free Spins & 🎡 +10 Wheel Spins</div>
+        <div>🎁 +${cleared.completionChests} Bronze, +${cleared.completionSilverPacks} Silver${cleared.completionGoldPacks > 0 ? `, +${cleared.completionGoldPacks} Gold` : ''} Card Packs</div>
+        ${cleared.completionJoker ? '<div>🃏 +1 Joker Wild Card!</div>' : ''}
+      </div>
+      <button class="action-btn green" id="world-complete-close">🚀 Enter ${nextWorld.title}!</button>
+    `;
+
+    box.querySelector('#world-complete-close')?.addEventListener('click', () => {
       backdrop.classList.add('hidden');
       this.sfx.playTap();
     });

@@ -79,4 +79,34 @@ export class SoundFX {
   playUpgrade(): void {
     [440, 554.37, 659.25, 880].forEach((n, i) => this.tone(n, 0.16, 'sine', 0.08, i * 0.06));
   }
+
+  playUpgradePitch(starLevel: number): void {
+    const semitoneFactor = Math.pow(1.09, Math.max(0, Math.min(5, starLevel)));
+    const notes = [420, 528, 660, 840];
+    notes.forEach((n, i) => {
+      this.tone(n * semitoneFactor, 0.15, 'triangle', 0.085, i * 0.05, n * semitoneFactor * 1.06);
+    });
+  }
+
+  playWinPitch(combo = 0): void {
+    const pitch = Math.pow(1.06, Math.min(10, Math.max(0, combo)));
+    const notes = [523.25, 659.25, 783.99, 1046.5];
+    notes.forEach((n, idx) => this.tone(n * pitch, 0.15, 'triangle', 0.08, idx * 0.055));
+  }
+
+  playNewCardChime(stars: number, isNew: boolean): void {
+    const base = isNew ? 620 + stars * 85 : 390 + stars * 30;
+    this.tone(base, 0.12, isNew ? 'triangle' : 'sine', 0.075, 0, base * (isNew ? 1.35 : 1.1));
+    if (isNew) {
+      this.tone(base * 1.25, 0.16, 'sine', 0.07, 0.07, base * 1.5);
+    }
+  }
+
+  playWorldComplete(): void {
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5, 1567.98, 2093];
+    notes.forEach((n, idx) => {
+      this.tone(n, 0.25, 'triangle', 0.095, idx * 0.065);
+      this.tone(n * 0.5, 0.22, 'sine', 0.05, idx * 0.065);
+    });
+  }
 }

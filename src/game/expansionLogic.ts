@@ -1,6 +1,7 @@
 import {
   FLASH_EVENTS,
   FlashEventDef,
+  FlashEventId,
   KENO_PAYOUTS,
   PET_CATALOG,
   PetDefinition,
@@ -15,10 +16,17 @@ export const PET_BOOST_DURATION_MS = 15 * 60 * 1000;
 export const GASHAPON_COIN_COST = 35_000_000;
 export const PET_TREATS_SHOP_COST = 75_000_000;
 
-export function getActiveFlashEvent(now = Date.now()): { event: FlashEventDef; remainingMs: number } {
+export function getActiveFlashEvent(
+  now = Date.now(),
+  overrideId?: FlashEventId | null
+): { event: FlashEventDef; remainingMs: number } {
+  const remainingMs = FLASH_EVENT_DURATION_MS - (now % FLASH_EVENT_DURATION_MS);
+  if (overrideId) {
+    const matched = FLASH_EVENTS.find((e) => e.id === overrideId);
+    if (matched) return { event: matched, remainingMs };
+  }
   const bucket = Math.floor(now / FLASH_EVENT_DURATION_MS);
   const event = FLASH_EVENTS[bucket % FLASH_EVENTS.length];
-  const remainingMs = FLASH_EVENT_DURATION_MS - (now % FLASH_EVENT_DURATION_MS);
   return { event, remainingMs };
 }
 

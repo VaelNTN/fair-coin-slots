@@ -34,22 +34,16 @@ export interface KingdomBuilding {
   maxLevel: number;
 }
 
-export interface CardItem {
-  id: string;
-  setId: string;
-  name: string;
-  emoji: string;
-  rarity: 'Common' | 'Rare' | 'Epic' | 'Legendary';
-  stars: number;
-}
-
-export interface CardSet {
-  id: string;
-  name: string;
-  emoji: string;
-  rewardCoins: number;
-  color: string;
-}
+export {
+  ALBUM_MASTER_REWARD,
+  CARD_PACK_DEFS,
+  CARD_SETS,
+  CARDS,
+  type CardItem,
+  type CardPackDef,
+  type CardPackTier,
+  type CardSet,
+} from './cardAlbum';
 
 export interface QuestItem {
   id: string;
@@ -395,35 +389,6 @@ export const KINGDOM_BUILDINGS: KingdomBuilding[] = [
   { id: 'temple', name: 'Piggy Temple', emoji: '🏛️', description: 'Crown jewel for top multipliers.', baseCost: 160_000_000, maxLevel: 10 },
 ];
 
-export const CARD_SETS: CardSet[] = [
-  { id: 'village', name: 'Villagers', emoji: '🏡', rewardCoins: 500_000_000, color: '#4cc9f0' },
-  { id: 'treasure', name: 'Vault', emoji: '💰', rewardCoins: 1_500_000_000, color: '#ffbe0b' },
-  { id: 'cosmic', name: 'Starlight', emoji: '🌌', rewardCoins: 4_000_000_000, color: '#c77dff' },
-];
-
-export const CARDS: CardItem[] = [
-  { id: 'c1', setId: 'village', name: 'Baker Bear', emoji: '🐻', rarity: 'Common', stars: 1 },
-  { id: 'c2', setId: 'village', name: 'Carrier Dove', emoji: '🕊️', rarity: 'Common', stars: 1 },
-  { id: 'c3', setId: 'village', name: 'Garden Gnome', emoji: '🍄', rarity: 'Rare', stars: 2 },
-  { id: 'c4', setId: 'village', name: 'Miller Fox', emoji: '🦊', rarity: 'Rare', stars: 2 },
-  { id: 'c5', setId: 'village', name: 'Mayor Owl', emoji: '🦉', rarity: 'Epic', stars: 3 },
-  { id: 'c6', setId: 'village', name: 'Golden Tractor', emoji: '🚜', rarity: 'Legendary', stars: 4 },
-
-  { id: 'c7', setId: 'treasure', name: 'Brass Key', emoji: '🔑', rarity: 'Common', stars: 1 },
-  { id: 'c8', setId: 'treasure', name: 'Silver Goblet', emoji: '🏆', rarity: 'Common', stars: 1 },
-  { id: 'c9', setId: 'treasure', name: 'Pirate Monkey', emoji: '🐒', rarity: 'Rare', stars: 2 },
-  { id: 'c10', setId: 'treasure', name: 'Ruby Ring', emoji: '💍', rarity: 'Rare', stars: 3 },
-  { id: 'c11', setId: 'treasure', name: 'Queen Crown', emoji: '👑', rarity: 'Epic', stars: 4 },
-  { id: 'c12', setId: 'treasure', name: 'Infinite Vault', emoji: '🏦', rarity: 'Legendary', stars: 5 },
-
-  { id: 'c13', setId: 'cosmic', name: 'Comet Pup', emoji: '🐶', rarity: 'Common', stars: 2 },
-  { id: 'c14', setId: 'cosmic', name: 'Solar Duck', emoji: '🦆', rarity: 'Rare', stars: 3 },
-  { id: 'c15', setId: 'cosmic', name: 'Astro Cat', emoji: '🐱', rarity: 'Rare', stars: 3 },
-  { id: 'c16', setId: 'cosmic', name: 'Moon Unicorn', emoji: '🦄', rarity: 'Epic', stars: 4 },
-  { id: 'c17', setId: 'cosmic', name: 'Nova Dragon', emoji: '🐉', rarity: 'Epic', stars: 5 },
-  { id: 'c18', setId: 'cosmic', name: 'Cosmic Piggy', emoji: '🐷', rarity: 'Legendary', stars: 5 },
-];
-
 export const QUEST_TEMPLATES: QuestItem[] = [
   { id: 'q-spin-15', title: 'Spin 15 times on any slot', metric: 'spins', target: 15, rewardCoins: 150_000_000, rewardChests: 1 },
   { id: 'q-win-5', title: 'Land 5 winning spins', metric: 'wins', target: 5, rewardCoins: 200_000_000, rewardChests: 1 },
@@ -491,7 +456,7 @@ export const PET_CATALOG: PetDefinition[] = [
   },
 ];
 
-export type FlashEventId = 'cards_boom' | 'high_roller' | 'cash_frenzy' | 'raid_madness';
+export type FlashEventId = 'cards_boom' | 'build_discount' | 'high_roller' | 'cash_frenzy' | 'raid_madness';
 
 export interface FlashEventDef {
   id: FlashEventId;
@@ -504,10 +469,17 @@ export interface FlashEventDef {
 export const FLASH_EVENTS: FlashEventDef[] = [
   {
     id: 'cards_boom',
-    name: 'CARDS BOOM',
+    name: '2x CARDS EVENT',
     emoji: '🃏',
-    desc: '+1 Extra Card per Chest & Double Puzzle drops!',
+    desc: 'Double Cards in Every Pack & 2x Puzzle Drops!',
     color: '#c084fc',
+  },
+  {
+    id: 'build_discount',
+    name: 'BUILD RUSH 30% OFF',
+    emoji: '🔨',
+    desc: '30% Coin Discount on all World Building Upgrades!',
+    color: '#38bdf8',
   },
   {
     id: 'high_roller',
