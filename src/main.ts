@@ -292,6 +292,10 @@ class FairCoinSlotsApp {
           <canvas id="hud-char-canvas" width="90" height="90" style="width:54px;height:54px;"></canvas>
         </div>
         <div class="hud-center">
+          <div class="studio-brand-row">
+            <span class="studio-brand-pill">🐷 PIGGY BANK SLOTS</span>
+            <span class="studio-shield-mini" id="hud-shields-mini" title="Active City Shields">🛡️ 2/3</span>
+          </div>
           <div class="coin-pill">
             <span class="coin-val" id="hud-coins">🪙 1.5B</span>
             <button class="rescue-btn" id="hud-rescue" style="display:none;">+Rescue</button>
@@ -643,12 +647,58 @@ class FairCoinSlotsApp {
     this.renderActiveTab();
   }
 
+  private getMaxShields(): number {
+    const petBoost = getActivePetBoost(this.state);
+    return petBoost.pet?.id === 'rhino' ? 4 : 3;
+  }
+
+  private getEventMilestoneInfo(): {
+    stage: number;
+    ptsInStage: number;
+    targetPts: number;
+    pct: number;
+    rewardCoins: number;
+    rewardSpins: number;
+    packTier: 'bronze' | 'silver' | 'gold';
+    packEmoji: string;
+  } {
+    const targetPts = 200;
+    const stage = Math.floor(this.state.tournamentPoints / targetPts) + 1;
+    const ptsInStage = this.state.tournamentPoints % targetPts;
+    const pct = Math.min(100, Math.round((ptsInStage / targetPts) * 100));
+    const econ = getWorldEconomyMultiplier(this.state.villageLevel);
+    const rewardCoins = Math.round(140_000_000 * econ * (1 + Math.min(15, stage) * 0.12));
+    const rewardSpins = 12 + (stage % 4) * 4;
+    const packTier: 'bronze' | 'silver' | 'gold' =
+      stage % 4 === 0 ? 'gold' : stage % 2 === 0 ? 'silver' : 'bronze';
+    const packEmoji = packTier === 'gold' ? '🥇' : packTier === 'silver' ? '🥈' : '🥉';
+    return { stage, ptsInStage, targetPts, pct, rewardCoins, rewardSpins, packTier, packEmoji };
+  }
+
+  private addEventMilestonePoints(pts: number): string | null {
+    const prevStage = Math.floor(this.state.tournamentPoints / 200) + 1;
+    this.state.tournamentPoints += pts;
+    const newStage = Math.floor(this.state.tournamentPoints / 200) + 1;
+    if (newStage > prevStage) {
+      const info = this.getEventMilestoneInfo();
+      this.state.coins += info.rewardCoins;
+      this.state.totalWon += info.rewardCoins;
+      this.state.freeSpins += info.rewardSpins;
+      if (info.packTier === 'gold') this.state.goldPacks += 1;
+      else if (info.packTier === 'silver') this.state.silverPacks += 1;
+      else this.state.chests += 1;
+      return `🐷 Event Stage ${prevStage} Cleared! +${formatCoins(info.rewardCoins)}, +${info.rewardSpins}🎟️ & +1${info.packEmoji}`;
+    }
+    return null;
+  }
+
   private renderHud(): void {
     const coinsEl = this.root.querySelector<HTMLElement>('#hud-coins');
     const lvlEl = this.root.querySelector<HTMLElement>('#hud-lvl');
     const xpFill = this.root.querySelector<HTMLElement>('#hud-xp-fill');
     const multEl = this.root.querySelector<HTMLElement>('#hud-mult');
     const rescueBtn = this.root.querySelector<HTMLButtonElement>('#hud-rescue');
+    const shieldsMini = this.root.querySelector<HTMLElement>('#hud-shields-mini');
 
     if (coinsEl) coinsEl.textContent = `🪙 ${formatCoins(this.state.coins)}`;
     if (lvlEl) lvlEl.textContent = `LVL ${this.state.level}`;
@@ -658,6 +708,10 @@ class FairCoinSlotsApp {
       xpFill.style.width = `${pct}%`;
     }
     if (multEl) multEl.textContent = `${getTotalMultiplier(this.state)}x`;
+    if (shieldsMini) {
+      const maxS = this.getMaxShields();
+      shieldsMini.textContent = `🛡️ ${Math.min(maxS, this.state.shields)}/${maxS}`;
+    }
     if (rescueBtn) {
       const minBet = this.getSlotBetSteps()[0] ?? 100_000;
       rescueBtn.style.display = this.state.coins < Math.max(1_000_000, minBet) ? 'inline-block' : 'none';
@@ -730,6 +784,13 @@ class FairCoinSlotsApp {
     const stars = getVillageStarsCount(this.state.villageStars);
     const upgradesLeft = Math.max(0, STARS_PER_VILLAGE - stars);
     const totalPacks = this.state.chests + this.state.silverPacks + this.state.goldPacks;
+    const maxShields = this.getMaxShields();
+    const curShields = Math.min(maxShields, this.state.shields);
+    const evInfo = this.getEventMilestoneInfo();
+
+    const shieldIconsHtml = Array.from({ length: maxShields }, (_, i) =>
+      `<span class="shield-slot-ico ${i < curShields ? 'active' : 'empty'}">${i < curShields ? '🛡️' : '⚪'}</span>`
+    ).join('');
 
     const vipPillHtml = this.isPassProcessing()
       ? `<button class="vip-pill" id="btn-vip-quick"><span class="vip-mini-dot"></span><span>VIP <span id="vip-quick-timer">${this.formatMmSs(this.state.passProcessingUntil! - Date.now())}</span></span></button>`
@@ -744,6 +805,42 @@ class FairCoinSlotsApp {
     const worldPillHtml = `<button class="world-pill" id="btn-hud-world">🏙️ W${this.state.villageLevel}/${TOTAL_WORLD_LEVELS}+ (${stars}/${STARS_PER_VILLAGE}★)</button>`;
 
     panel.innerHTML = `
+      <div class="event-milestone-bar" id="btn-event-milestone" title="Spin, Attack & Heist to fill the Event Bar!">
+        <div class="ev-badge-ico">🐷</div>
+        <div class="ev-center-col">
+          <div class="ev-top-row">
+            <span class="ev-title">Golden Piggy Frenzy • Stage ${evInfo.stage}</span>
+            <span class="ev-pts">${evInfo.ptsInStage}/${evInfo.targetPts} pts</span>
+          </div>
+          <div class="ev-progress-track">
+            <div class="ev-progress-fill" style="width:${evInfo.pct}%;"></div>
+          </div>
+        </div>
+        <div class="ev-reward-pill">
+          <span>🪙 +${formatCoins(evInfo.rewardCoins)}</span>
+          <small>+${evInfo.rewardSpins}🎟️ ${evInfo.packEmoji}</small>
+        </div>
+      </div>
+
+      <div class="social-slot-dock">
+        <button type="button" class="social-dock-btn shields" id="btn-slot-shields" title="Your City Shields protect against Rival Attacks">
+          <span class="dock-shields-row">${shieldIconsHtml}</span>
+          <small>Shields ${curShields}/${maxShields}</small>
+        </button>
+        <button type="button" class="social-dock-btn attack" id="btn-slot-attack" title="Launch a Lightning Hammer Attack on a Rival City!">
+          <span class="dock-main-ico">⚔️ Attack</span>
+          <small>Smash City</small>
+        </button>
+        <button type="button" class="social-dock-btn heist" id="btn-slot-heist" title="Dig 3 of 4 Golden Piggy Vaults in the Coin King's Treasury!">
+          <span class="dock-main-ico">🐷 Heist</span>
+          <small>Steal Gold</small>
+        </button>
+        <button type="button" class="social-dock-btn rivals ${this.state.revengeReady ? 'revenge-pulse' : ''}" id="btn-slot-rivals" title="View Rivals Battle Log & Take 2x Revenge!">
+          <span class="dock-main-ico">${this.state.revengeReady ? '⚡ Revenge!' : '🎯 Rivals'}</span>
+          <small>${this.state.revengeReady ? '2x Payout!' : 'Battle Log'}</small>
+        </button>
+      </div>
+
       <div class="flash-event-banner" style="border-color:${flash.event.color};">
         <span>${flash.event.emoji} <b>${flash.event.name}:</b> ${flash.event.desc}</span>
         <span style="color:${flash.event.color};white-space:nowrap;" id="flash-event-timer">${this.formatMmSs(flash.remainingMs)}</span>
@@ -774,7 +871,7 @@ class FairCoinSlotsApp {
       </div>
 
       <div class="slot-quick-bar">
-        <button class="piggy-pill" id="btn-piggy-break">🐷 Piggy: ${formatCoins(this.state.piggyBankCoins)}</button>
+        <button class="piggy-pill" id="btn-piggy-break">🐷 Piggy Vault: ${formatCoins(this.state.piggyBankCoins)}</button>
         ${worldPillHtml}
         ${
           this.state.freeSpins > 0
@@ -814,7 +911,7 @@ class FairCoinSlotsApp {
         </div>
 
         <div class="win-banner ${isBig ? 'big' : ''}" id="win-banner">
-          ${bannerText ?? 'Spin & win! Collect 🧩 Puzzle pieces, 🍖 Treats & 🫧 Tokens'}
+          ${bannerText ?? 'Spin & win! Land 🔨 ATTACK, 🐷 HEIST, 🛡️ SHIELD & 🪙 COIN GRAB!'}
         </div>
         <div class="marquee-lights">${this.buildMarqueeBulbs(11)}</div>
       </div>
@@ -843,20 +940,37 @@ class FairCoinSlotsApp {
       this.openSlotsSquarePickerModal();
     });
 
+    panel.querySelector('#btn-event-milestone')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      this.showToast(`🐷 Stage ${evInfo.stage}: ${evInfo.ptsInStage}/${evInfo.targetPts} pts! Next reward: +${formatCoins(evInfo.rewardCoins)} & +${evInfo.rewardSpins} Spins!`);
+    });
+
+    panel.querySelector('#btn-slot-shields')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      this.openRivalsRevengeModal();
+    });
+
+    panel.querySelector('#btn-slot-attack')?.addEventListener('click', () => {
+      if (this.isSpinning) return;
+      this.sfx.playTap();
+      this.openCityAttackModal();
+    });
+
+    panel.querySelector('#btn-slot-heist')?.addEventListener('click', () => {
+      if (this.isSpinning) return;
+      this.sfx.playTap();
+      this.openPiggyHeistModal();
+    });
+
+    panel.querySelector('#btn-slot-rivals')?.addEventListener('click', () => {
+      if (this.isSpinning) return;
+      this.sfx.playTap();
+      this.openRivalsRevengeModal();
+    });
+
     panel.querySelector('#btn-piggy-break')?.addEventListener('click', () => {
-      if (this.state.piggyBankCoins < 10_000_000) {
-        this.showToast('Piggy Bank fills every spin! Break open at 10M+.');
-        return;
-      }
-      const payout = this.state.piggyBankCoins;
-      this.state.coins += payout;
-      this.state.piggyBankCoins = 5_000_000;
-      saveGameState(this.state);
-      this.sfx.playBigWin();
-      this.spawnCoinShower(18);
-      this.spawnCoinFountain(14);
-      this.showToast(`🐷 Piggy Bank opened! +${formatCoins(payout)} coins!`);
-      this.renderAll();
+      this.sfx.playTap();
+      this.openPiggyVaultModal();
     });
 
     panel.querySelector('#btn-hud-world')?.addEventListener('click', () => {
@@ -921,6 +1035,413 @@ class FairCoinSlotsApp {
     });
 
     panel.querySelector('#btn-spin')?.addEventListener('click', () => void this.triggerSpin());
+  }
+
+  private openPiggyVaultModal(): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    const econ = getWorldEconomyMultiplier(this.state.villageLevel);
+    const minBreak = Math.round(10_000_000 * Math.max(1, econ * 0.25));
+    const current = this.state.piggyBankCoins;
+    const fillPct = Math.min(100, Math.round((current / Math.max(1, minBreak * 2.5)) * 100));
+    const canBreak = current >= 10_000_000;
+
+    box.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+        <h2 style="margin:0;color:#ffd166;">🐷 Golden Piggy Bank Vault</h2>
+        <button type="button" class="icon-btn" id="close-piggy-vault">✖</button>
+      </div>
+      <div class="studio-piggy-hero">
+        <div class="studio-piggy-big-ico">🐷🔨</div>
+        <div class="studio-piggy-amount">🪙 ${formatCoins(current)}</div>
+        <div class="ev-progress-track" style="height:10px;width:100%;">
+          <div class="ev-progress-fill" style="width:${fillPct}%;"></div>
+        </div>
+        <small style="color:#fde68a;font-weight:800;">Vault Capacity: ${fillPct}% • Fills automatically on every Spin!</small>
+      </div>
+      <p style="margin:0;font-size:12px;color:#c7b8e8;text-align:center;">
+        Every slot spin deposits bonus coins into your <b>Golden Piggy Bank</b>. Smash it open anytime with the Golden Hammer for <b>FREE</b>!
+      </p>
+      <button class="action-btn green" id="btn-smash-piggy-now" ${!canBreak ? 'disabled' : ''} style="width:100%;padding:11px;font-size:14px;">
+        ${canBreak ? `🔨 SMASH PIGGY BANK (+${formatCoins(current)} FREE!)` : 'Spin Slots to Fill Piggy Bank (10M+)'}
+      </button>
+    `;
+
+    box.querySelector('#close-piggy-vault')?.addEventListener('click', () => {
+      backdrop.classList.add('hidden');
+      this.sfx.playTap();
+    });
+
+    box.querySelector('#btn-smash-piggy-now')?.addEventListener('click', () => {
+      if (this.state.piggyBankCoins < 10_000_000) return;
+      const payout = this.state.piggyBankCoins;
+      this.state.coins += payout;
+      this.state.totalWon += payout;
+      this.state.piggyBankCoins = Math.round(5_000_000 * Math.max(1, econ * 0.15));
+      saveGameState(this.state);
+      this.sfx.playWorldComplete();
+      this.triggerScreenShake();
+      this.spawnCoinShower(28);
+      this.spawnCoinFountain(24);
+      this.spawnConfettiBurst(36);
+      backdrop.classList.add('hidden');
+      this.showToast(`🐷💥 SMASHED GOLDEN PIGGY BANK! +${formatCoins(payout)} coins!`);
+      this.renderAll();
+    });
+  }
+
+  private openCityAttackModal(rivalOverride?: string, isRevengeOverride?: boolean): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    const rivals = ['Baron Blitz ⚡', 'King Croc 🐊', 'Lady Fortune 💎', 'Shadow Wolf 🐺', 'Captain Hook 🏴‍☠️', 'Empress Jade 🐲'];
+    const isRevenge = isRevengeOverride ?? this.state.revengeReady;
+    const rivalName = rivalOverride ?? (isRevenge ? this.state.rivalTargetName : rivals[Math.floor(Math.random() * rivals.length)]);
+    const rivalWorld = Math.max(1, this.state.villageLevel + (Math.floor(Math.random() * 5) - 2));
+    const econ = getWorldEconomyMultiplier(this.state.villageLevel);
+    const petBoost = getActivePetBoost(this.state);
+    const petMult = petBoost.pet ? 1.35 : 1;
+    const vipMult = this.state.fairPassActive ? 2.5 : 1;
+    const revengeMult = isRevenge ? 2 : 1;
+    const estMaxLoot = Math.round(145_000_000 * econ * petMult * vipMult * revengeMult);
+
+    const targets = [
+      { id: 'hall', ico: '🏛️', name: 'Grand Town Hall', stars: '★★★★★' },
+      { id: 'vault', ico: '🏦', name: 'Royal Gold Vault', stars: '★★★★☆' },
+      { id: 'spire', ico: '🗼', name: 'Diamond Spire', stars: '★★★★☆' },
+      { id: 'keep', ico: '🏰', name: 'Imperial Keep', stars: '★★★☆☆' },
+      { id: 'wheel', ico: '🎡', name: 'Wonder Wheel', stars: '★★★☆☆' },
+    ];
+
+    box.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+        <h2 style="margin:0;color:#ffd166;">⚔️ ${isRevenge ? '2x REVENGE ATTACK!' : 'CITY LIGHTNING ATTACK!'}</h2>
+        <button type="button" class="icon-btn" id="close-attack-modal">✖</button>
+      </div>
+      <div class="rival-target-banner ${isRevenge ? 'revenge' : ''}">
+        <div>
+          <div style="font-size:13px;font-weight:900;color:#fff;">🎯 Target: ${rivalName}</div>
+          <div style="font-size:10.5px;color:#cbd5e1;">World ${rivalWorld} City • Max Payout: <b style="color:#ffd166;">🪙 +${formatCoins(estMaxLoot)}</b></div>
+        </div>
+        ${isRevenge ? '<span class="revenge-tag-pill">⚡ 2x REVENGE</span>' : `<span class="revenge-tag-pill" style="background:#3b82f6;">🔨 AIM & STRIKE</span>`}
+      </div>
+      <p style="margin:0;font-size:11.5px;color:#c7b8e8;text-align:center;">
+        Tap any building in <b>${rivalName}'s</b> city to strike it with your Golden Lightning Hammer!
+      </p>
+      <div class="raid-target-grid" id="attack-targets-grid">
+        ${targets
+          .map(
+            (t) => `
+          <button type="button" class="raid-target-card" data-strike-target="${t.name}" data-strike-ico="${t.ico}">
+            <span class="raid-target-ico">${t.ico}</span>
+            <strong class="raid-target-name">${t.name}</strong>
+            <span class="raid-target-stars">${t.stars}</span>
+            <span class="raid-strike-pill">🔨 STRIKE</span>
+          </button>
+        `
+          )
+          .join('')}
+      </div>
+    `;
+
+    box.querySelector('#close-attack-modal')?.addEventListener('click', () => {
+      backdrop.classList.add('hidden');
+      this.sfx.playTap();
+    });
+
+    box.querySelectorAll<HTMLButtonElement>('[data-strike-target]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const targetName = btn.dataset.strikeTarget!;
+        const targetIco = btn.dataset.strikeIco!;
+        const shielded = !isRevenge && Math.random() < 0.22;
+        const baseCoins = shielded ? 52_000_000 : isRevenge ? 165_000_000 : 115_000_000;
+        const loot = Math.round(baseCoins * econ * petMult * vipMult);
+
+        this.state.coins += loot;
+        this.state.totalWon += loot;
+        this.state.revengeReady = false;
+        this.state.shields = Math.min(this.getMaxShields(), this.state.shields + (shielded ? 0 : 1));
+        incrementQuest(this.state, 'arcade', 1);
+        addClubActivityPoints(this.state, 24);
+        const evMsg = this.addEventMilestonePoints(45);
+        saveGameState(this.state);
+
+        if (shielded) {
+          this.sfx.playReelStop(1);
+        } else {
+          this.sfx.playWorldComplete();
+          this.triggerScreenShake();
+          this.spawnCoinShower(24);
+          this.spawnCoinFountain(20);
+          this.spawnConfettiBurst(28);
+        }
+
+        box.innerHTML = `
+          <h2 style="margin:0;color:${shielded ? '#38bdf8' : '#06d6a0'};">
+            ${shielded ? '🛡️ SHIELD SHATTERED!' : isRevenge ? '⚡💥 2x REVENGE CRUSH!' : '💥 DIRECT LIGHTNING HIT!'}
+          </h2>
+          <div style="font-size:48px;line-height:1.1;margin:4px 0;">${targetIco}⚡🔨</div>
+          <p style="margin:0;font-size:13px;color:#fff8f0;text-align:center;">
+            You struck <b>${rivalName}'s ${targetName}</b>!<br/>
+            ${shielded ? 'Their shield blocked part of the blast, but you still salvaged huge gold!' : 'Building demolished! Massive treasury loot plundered & +1 🛡️ Shield earned!'}
+          </p>
+          <div class="studio-piggy-hero" style="padding:10px;">
+            <div style="font-size:11px;color:#fde68a;font-weight:800;">RAID PAYOUT</div>
+            <div class="studio-piggy-amount">🪙 +${formatCoins(loot)}</div>
+            ${evMsg ? `<div style="font-size:11px;color:#06d6a0;font-weight:900;">${evMsg}</div>` : '<div style="font-size:10.5px;color:#93c5fd;">+45 🐷 Event Points • +24 👑 Club Points</div>'}
+          </div>
+          <div style="display:flex;gap:8px;width:100%;">
+            <button type="button" class="action-btn secondary" id="btn-attack-again" style="flex:1;">⚔️ Raid Next Rival</button>
+            <button type="button" class="action-btn green" id="btn-attack-collect" style="flex:1.2;">💰 Collect Loot</button>
+          </div>
+        `;
+
+        this.renderAll();
+
+        box.querySelector('#btn-attack-again')?.addEventListener('click', () => {
+          this.sfx.playTap();
+          this.openCityAttackModal(undefined, false);
+        });
+        box.querySelector('#btn-attack-collect')?.addEventListener('click', () => {
+          backdrop.classList.add('hidden');
+          this.sfx.playTap();
+        });
+      });
+    });
+  }
+
+  private openPiggyHeistModal(kingOverride?: string): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    const kings = ['King Croc 🐊', 'Lady Fortune 💎', 'Baron Blitz ⚡', 'Sultan Gold 🐪', 'Empress Jade 🐲', 'Don Piggy 🐷'];
+    const kingName = kingOverride ?? kings[Math.floor(Math.random() * kings.length)];
+    const econ = getWorldEconomyMultiplier(this.state.villageLevel);
+    const petBoost = getActivePetBoost(this.state);
+    const activePet = PET_CATALOG.find((p) => p.id === this.state.activePetId) ?? PET_CATALOG[0];
+    const petMult = petBoost.pet ? 1.45 : 1.15;
+    const vipMult = this.state.fairPassActive ? 2.5 : 1;
+
+    const spotMultipliers = [0.85, 1.25, 1.85, 0.55].sort(() => Math.random() - 0.5);
+    const spotAmounts = spotMultipliers.map((m) => Math.round(78_000_000 * m * econ * petMult * vipMult));
+    const totalHoard = spotAmounts.reduce((a, b) => a + b, 0);
+    const revealed = [false, false, false, false];
+    let digsCount = 0;
+    let stolenSum = 0;
+
+    const renderHeist = () => {
+      const done = digsCount >= 3;
+      box.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+          <h2 style="margin:0;color:#ff8fab;">🐷 COIN KING PIGGY HEIST!</h2>
+          <button type="button" class="icon-btn" id="close-heist-modal">✖</button>
+        </div>
+        <div class="rival-target-banner heist">
+          <div>
+            <div style="font-size:13px;font-weight:900;color:#fff;">👑 Coin King: ${kingName}</div>
+            <div style="font-size:10.5px;color:#fbcfe8;">Treasury Hoard: <b style="color:#ffd166;">🪙 ${formatCoins(totalHoard)}</b></div>
+          </div>
+          <span class="revenge-tag-pill" style="background:#db2777;">${activePet.emoji} +${Math.round((petMult - 1) * 100)}% Pet</span>
+        </div>
+        <p style="margin:0;font-size:11.5px;color:#c7b8e8;text-align:center;">
+          ${done ? `Heist Complete! You plundered 3 of 4 vaults from <b>${kingName}</b>!` : `Dig <b>${3 - digsCount} more</b> Golden Piggy Vault${3 - digsCount === 1 ? '' : 's'} (${digsCount}/3 dug)!`}
+        </p>
+        <div class="heist-vault-grid">
+          ${spotAmounts
+            .map((amt, idx) => {
+              if (revealed[idx]) {
+                const isMega = amt === Math.max(...spotAmounts);
+                return `
+                  <div class="heist-vault-card revealed ${isMega ? 'mega' : ''}">
+                    <span style="font-size:28px;">${isMega ? '🐷👑' : '💰'}</span>
+                    <strong style="font-size:12px;color:#ffd166;">+${formatCoins(amt)}</strong>
+                    <small style="font-size:9.5px;color:#06d6a0;">${isMega ? 'MEGA VAULT!' : 'STOLEN!'}</small>
+                  </div>
+                `;
+              }
+              if (done) {
+                return `
+                  <div class="heist-vault-card missed">
+                    <span style="font-size:24px;opacity:0.5;">🔒</span>
+                    <strong style="font-size:11px;color:#94a3b8;">${formatCoins(amt)}</strong>
+                    <small style="font-size:9px;color:#64748b;">Unopened</small>
+                  </div>
+                `;
+              }
+              return `
+                <button type="button" class="heist-vault-card" data-heist-dig="${idx}">
+                  <span style="font-size:28px;">🐷❓</span>
+                  <strong style="font-size:11px;color:#fff;">Vault #${idx + 1}</strong>
+                  <span class="raid-strike-pill" style="background:linear-gradient(135deg,#ec4899,#be185d);">⛏️ DIG</span>
+                </button>
+              `;
+            })
+            .join('')}
+        </div>
+        <div class="studio-piggy-hero" style="padding:8px 12px;">
+          <div style="font-size:10.5px;color:#fbcfe8;font-weight:800;">STOLEN SO FAR (${activePet.emoji} ${activePet.name} Assisted)</div>
+          <div class="studio-piggy-amount" style="font-size:20px;">🪙 +${formatCoins(stolenSum)}</div>
+        </div>
+        ${
+          done
+            ? `<div style="display:flex;gap:8px;width:100%;">
+                <button type="button" class="action-btn secondary" id="btn-heist-again" style="flex:1;">🐷 Next Heist</button>
+                <button type="button" class="action-btn green" id="btn-heist-done" style="flex:1.2;">💰 Collect Heist</button>
+              </div>`
+            : ''
+        }
+      `;
+
+      box.querySelector('#close-heist-modal')?.addEventListener('click', () => {
+        backdrop.classList.add('hidden');
+        this.sfx.playTap();
+      });
+
+      box.querySelector('#btn-heist-again')?.addEventListener('click', () => {
+        this.sfx.playTap();
+        this.openPiggyHeistModal();
+      });
+
+      box.querySelector('#btn-heist-done')?.addEventListener('click', () => {
+        backdrop.classList.add('hidden');
+        this.sfx.playTap();
+      });
+
+      box.querySelectorAll<HTMLButtonElement>('[data-heist-dig]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = Number(btn.dataset.heistDig);
+          if (revealed[idx] || digsCount >= 3) return;
+          revealed[idx] = true;
+          digsCount += 1;
+          const wonAmt = spotAmounts[idx];
+          stolenSum += wonAmt;
+          this.state.coins += wonAmt;
+          this.state.totalWon += wonAmt;
+          incrementQuest(this.state, 'arcade', 1);
+          addClubActivityPoints(this.state, 16);
+
+          if (digsCount === 3) {
+            const evMsg = this.addEventMilestonePoints(55);
+            this.sfx.playWorldComplete();
+            this.triggerScreenShake();
+            this.spawnCoinShower(26);
+            this.spawnCoinFountain(20);
+            this.spawnConfettiBurst(30);
+            if (evMsg) this.showToast(evMsg);
+          } else {
+            this.sfx.playBigWin();
+            this.spawnCoinShower(12);
+          }
+          saveGameState(this.state);
+          this.renderAll();
+          renderHeist();
+        });
+      });
+    };
+
+    renderHeist();
+  }
+
+  private openRivalsRevengeModal(): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    const maxShields = this.getMaxShields();
+    const econ = getWorldEconomyMultiplier(this.state.villageLevel);
+    const shieldCost = Math.round(35_000_000 * econ);
+
+    const rivalFeed = [
+      { name: this.state.rivalTargetName || 'Baron Blitz ⚡', action: 'Attacked your Town Hall!', time: '2m ago', isRevenge: true },
+      { name: 'King Croc 🐊', action: 'Attempted a Piggy Heist on your Vault!', time: '9m ago', isRevenge: true },
+      { name: 'Lady Fortune 💎', action: 'Struck your Neon Spire (Blocked by 🛡️)!', time: '18m ago', isRevenge: false },
+      { name: 'Shadow Wolf 🐺', action: 'Raided your Gold Treasury!', time: '31m ago', isRevenge: true },
+      { name: 'Captain Hook 🏴‍☠️', action: 'Dug 3 vaults in your City!', time: '47m ago', isRevenge: false },
+    ];
+
+    const renderLog = () => {
+      const curShields = Math.min(maxShields, this.state.shields);
+      box.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+          <h2 style="margin:0;color:#ffd166;">🎯 Rivals & 2x Revenge Log</h2>
+          <button type="button" class="icon-btn" id="close-rivals-modal">✖</button>
+        </div>
+        <div class="rival-target-banner">
+          <div>
+            <div style="font-size:12.5px;font-weight:900;color:#fff;">🛡️ City Defense: ${curShields}/${maxShields} Shields</div>
+            <div style="font-size:10.5px;color:#cbd5e1;">Shields block Rival Attacks & protect your 10 City Buildings!</div>
+          </div>
+          <button type="button" class="action-btn green" id="btn-buy-shield-quick" ${curShields >= maxShields ? 'disabled' : ''} style="padding:5px 10px;font-size:10.5px;">
+            ${curShields >= maxShields ? '🛡️ Maxed' : `+1 🛡️ (${formatCoins(shieldCost)})`}
+          </button>
+        </div>
+        <div class="rivals-log-list">
+          ${rivalFeed
+            .map(
+              (r) => `
+            <div class="rival-log-row ${r.isRevenge ? 'revenge' : ''}">
+              <div class="rival-log-info">
+                <strong>${r.name} <small style="color:#94a3b8;font-weight:600;">• ${r.time}</small></strong>
+                <span>${r.action}</span>
+              </div>
+              <div style="display:flex;gap:5px;">
+                <button type="button" class="action-btn ${r.isRevenge ? 'pink' : ''}" data-revenge-attack="${r.name}" data-revenge-mult="${r.isRevenge ? '1' : '0'}" style="padding:5px 9px;font-size:10.5px;">
+                  ${r.isRevenge ? '⚡ 2x Revenge' : '⚔️ Attack'}
+                </button>
+                <button type="button" class="action-btn secondary" data-revenge-heist="${r.name}" style="padding:5px 8px;font-size:10.5px;">
+                  🐷 Heist
+                </button>
+              </div>
+            </div>
+          `
+            )
+            .join('')}
+        </div>
+      `;
+
+      box.querySelector('#close-rivals-modal')?.addEventListener('click', () => {
+        backdrop.classList.add('hidden');
+        this.sfx.playTap();
+      });
+
+      box.querySelector('#btn-buy-shield-quick')?.addEventListener('click', () => {
+        if (this.state.shields >= maxShields) return;
+        if (this.state.coins < shieldCost) {
+          this.showToast(`Need 🪙 ${formatCoins(shieldCost)} coins for a Shield!`);
+          return;
+        }
+        this.state.coins -= shieldCost;
+        this.state.shields = Math.min(maxShields, this.state.shields + 1);
+        saveGameState(this.state);
+        this.sfx.playUpgrade();
+        this.showToast('🛡️ +1 City Shield Equipped!');
+        this.renderAll();
+        renderLog();
+      });
+
+      box.querySelectorAll<HTMLButtonElement>('[data-revenge-attack]').forEach((b) => {
+        b.addEventListener('click', () => {
+          const target = b.dataset.revengeAttack!;
+          const isRev = b.dataset.revengeMult === '1';
+          this.sfx.playTap();
+          this.openCityAttackModal(target, isRev);
+        });
+      });
+
+      box.querySelectorAll<HTMLButtonElement>('[data-revenge-heist]').forEach((b) => {
+        b.addEventListener('click', () => {
+          const target = b.dataset.revengeHeist!;
+          this.sfx.playTap();
+          this.openPiggyHeistModal(target);
+        });
+      });
+    };
+
+    renderLog();
   }
 
   private openGambleModal(): void {
@@ -1023,7 +1544,6 @@ class FairCoinSlotsApp {
     this.state.jackpots.major += Math.round(bet * 0.04);
     this.state.jackpots.grand += Math.round(bet * 0.06);
     this.state.totalSpins += 1;
-    this.state.tournamentPoints += Math.max(10, Math.round(Math.log10(Math.max(10, bet)) * 8));
     incrementQuest(this.state, 'spins', 1);
 
     this.renderHud();
@@ -1125,6 +1645,62 @@ class FairCoinSlotsApp {
     addClubActivityPoints(this.state, finalWin > 0 ? 12 : 5);
 
     const extraDrops: string[] = [];
+
+    // Advance Top Event Milestone Bar on every spin
+    const evPts = Math.max(14, Math.round(Math.log10(Math.max(10, bet)) * 3)) + (finalWin > 0 ? 16 : 0);
+    const evClearMsg = this.addEventMilestonePoints(evPts);
+    if (evClearMsg) {
+      extraDrops.push(evClearMsg);
+    }
+
+    // Check Social Slot Symbol Counts on the 5x3 grid (Attack, Heist, Shield)
+    let attackSyms = 0;
+    let heistSyms = 0;
+    let shieldSyms = 0;
+    for (let c = 0; c < 5; c++) {
+      for (let r = 0; r < 3; r++) {
+        const sid = result.grid[c][r].id;
+        if (sid === 'hammer' || sid === 'sword' || sid === 'dynamite') attackSyms++;
+        if (sid === 'piggy' || sid === 'chest' || sid === 'nugget') heistSyms++;
+        if (sid === 'shield') shieldSyms++;
+      }
+    }
+
+    if (shieldSyms >= 3) {
+      const maxS = this.getMaxShields();
+      if (this.state.shields < maxS) {
+        this.state.shields += 1;
+        extraDrops.push(`🛡️ +1 City Shield (${this.state.shields}/${maxS})`);
+      } else {
+        this.state.freeSpins += 4;
+        extraDrops.push('🛡️ Max Shields -> +4 Free Spins!');
+      }
+    }
+
+    let triggerSocialModal: 'attack' | 'heist' | null = null;
+    const econ = getWorldEconomyMultiplier(this.state.villageLevel);
+    if (!result.triggerHoldAndSpin) {
+      if (heistSyms >= 4) {
+        if (this.autoSpin) {
+          const autoHeistLoot = Math.round(135_000_000 * econ);
+          this.state.coins += autoHeistLoot;
+          this.state.totalWon += autoHeistLoot;
+          extraDrops.push(`🐷 Auto-Heist: +${formatCoins(autoHeistLoot)}`);
+        } else {
+          triggerSocialModal = 'heist';
+        }
+      } else if (attackSyms >= 4) {
+        if (this.autoSpin) {
+          const autoAtkLoot = Math.round(105_000_000 * econ);
+          this.state.coins += autoAtkLoot;
+          this.state.totalWon += autoAtkLoot;
+          extraDrops.push(`⚔️ Auto-Attack: +${formatCoins(autoAtkLoot)}`);
+        } else {
+          triggerSocialModal = 'attack';
+        }
+      }
+    }
+
     const puzzleChance = flash.event.id === 'cards_boom' ? 0.32 : 0.16;
     if (Math.random() < puzzleChance) {
       const puz = grantRandomPuzzlePiece(this.state);
@@ -1242,6 +1818,10 @@ class FairCoinSlotsApp {
       incrementQuest(this.state, 'holdAndSpin', 1);
       saveGameState(this.state);
       await this.runHoldAndSpinBonus(result.coinPositions, bet);
+    } else if (triggerSocialModal === 'heist') {
+      this.openPiggyHeistModal();
+    } else if (triggerSocialModal === 'attack') {
+      this.openCityAttackModal();
     } else {
       if (this.moodTimer !== null) window.clearTimeout(this.moodTimer);
       this.moodTimer = window.setTimeout(() => {
@@ -5605,10 +6185,10 @@ class FairCoinSlotsApp {
     const renderInfo = () => {
       const sessionMins = Math.floor((Date.now() - this.state.sessionStartAt) / 60_000);
       box.innerHTML = `
-        <h2 style="margin:0;color:#ffd166;">ℹ️ Fair Coin Slots</h2>
+        <h2 style="margin:0;color:#ffd166;">🐷 Piggy Bank Slots</h2>
         <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">
-          <b>Fair Coin Slots — Social Casino & Arcade</b><br/>
-          <span style="color:#c7b8e8;">Spin themed slot machines, play arcade tables, collect 90 album cards across 10 sets, and climb 550+ Worlds with your Royal Club.</span>
+          <b>Piggy Bank Slots — Social Raid, City Builder & Casino Studio</b><br/>
+          <span style="color:#c7b8e8;">Spin slot machines, launch Lightning City Attacks & Coin King Piggy Heists, collect 135 Album Cards across 15 sets, customize 23 full-body mascots, and conquer 550+ Circular Cities with your Royal Club!</span>
         </p>
         <div style="background:rgba(255,255,255,0.06);border-radius:12px;padding:10px;font-size:12px;color:#c7b8e8;display:flex;flex-direction:column;gap:4px;">
           <div>Session: <b>${sessionMins}m</b> • Break tip every <b>${this.state.reminderMinutes}m</b></div>

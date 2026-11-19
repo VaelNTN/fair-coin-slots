@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Fair Coin Slots</string>
-    <string name="title_activity_main">Fair Coin Slots</string>
+    <string name="app_name">Piggy Bank Slots</string>
+    <string name="title_activity_main">Piggy Bank Slots</string>
     <string name="package_name">com.faircoinslots.game</string>
     <string name="custom_url_scheme">com.faircoinslots.game</string>
 </resources>
