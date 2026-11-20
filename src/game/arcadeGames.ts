@@ -84,7 +84,7 @@ export class CoinDozerController {
     const x = 36 + Math.max(0.06, Math.min(0.94, safeNorm)) * (this.logicalWidth - 72);
     const roll = Math.random();
     const kind: DozerCoin['kind'] =
-      roll < 0.08 ? 'chest' : roll < 0.18 ? 'gem' : roll < 0.28 ? 'spin' : 'coin';
+      roll < 0.025 ? 'chest' : roll < 0.085 ? 'gem' : roll < 0.125 ? 'spin' : 'coin';
 
     // Cap active coins to prevent unbounded buildup/freeze on rapid spam
     if (this.coins.length >= 65) {
@@ -172,8 +172,8 @@ export class CoinDozerController {
       if (pushDelta > 0) {
         for (const c of this.coins) {
           if (c.y <= pusherY + 14 && c.y >= pusherY - 22) {
-            c.y += pushDelta * 1.18;
-            c.x += (Math.random() - 0.5) * 0.6 * dtScale;
+            c.y += pushDelta * 1.12;
+            c.x += (Math.random() - 0.5) * 0.75 * dtScale;
           }
         }
       }
@@ -206,22 +206,30 @@ export class CoinDozerController {
         }
       }
 
-      // Clamp bounds, sanitize NaN, and collect drops at tray edge (y > 234)
+      // Clamp bounds, sanitize NaN, handle realistic arcade side-gutter drains, and collect front-edge drops
       let wonCoins = 0;
       let wonChests = 0;
       let wonSpins = 0;
       const kept: DozerCoin[] = [];
       for (const c of this.coins) {
         if (!Number.isFinite(c.x) || !Number.isFinite(c.y)) continue;
+        // Realistic side gutter slots near lower rails (coins pushed into side walls drain out)
+        if (c.y > 145 && (c.x < minWallX + 4 || c.x > maxWallX - 4)) {
+          continue;
+        }
         c.x = Math.max(minWallX, Math.min(maxWallX, c.x));
         c.y = Math.max(minTopY, c.y);
 
         if (c.y > 234) {
-          this.spawnDropBurst(c.x, c.y, c.kind);
-          if (c.kind === 'coin') wonCoins += 2_500_000;
-          else if (c.kind === 'gem') wonCoins += 15_000_000;
-          else if (c.kind === 'chest') wonChests += 1;
-          else if (c.kind === 'spin') wonSpins += 3;
+          // Outer corners slip into side chutes; center lip pays out!
+          const inCenterTray = c.x >= 56 && c.x <= this.logicalWidth - 56;
+          if (inCenterTray) {
+            this.spawnDropBurst(c.x, c.y, c.kind);
+            if (c.kind === 'coin') wonCoins += 1_150_000;
+            else if (c.kind === 'gem') wonCoins += 4_500_000;
+            else if (c.kind === 'chest') wonChests += 1;
+            else if (c.kind === 'spin') wonSpins += 1;
+          }
         } else {
           kept.push(c);
         }
@@ -233,13 +241,13 @@ export class CoinDozerController {
         this.cb.onScoreCoins(wonCoins, wonChests, wonSpins);
       }
 
-      // Refill gently if board gets sparse
-      if (this.coins.length < 14) {
+      // Refill gently with single base coins only if tray is nearly empty
+      if (this.coins.length < 10) {
         this.coins.push({
-          x: 50 + Math.random() * 200,
-          y: 95 + Math.random() * 55,
+          x: 56 + Math.random() * 188,
+          y: 95 + Math.random() * 50,
           r: 11,
-          kind: Math.random() < 0.15 ? 'gem' : 'coin',
+          kind: 'coin',
           glintPhase: Math.random() * Math.PI * 2,
         });
       }
@@ -428,7 +436,7 @@ export class CoinDozerController {
   }
 }
 
-export const PLINKO_MULTIPLIERS = [12, 3, 1.3, 0.5, 0.3, 0.5, 1.3, 3, 12];
+export const PLINKO_MULTIPLIERS = [10, 3, 1.25, 0.45, 0.25, 0.45, 1.25, 3, 10];
 
 interface PlinkoPeg {
   x: number;
@@ -572,8 +580,8 @@ export class PlinkoController {
 
         b.vy = Math.min(7.5, b.vy + 0.25 * dtScale);
         b.vx *= Math.pow(0.985, dtScale);
-        // Subtle inward drift toward center low-multiplier slots (house edge)
-        b.vx += (this.logicalWidth / 2 - b.x) * 0.0045 * dtScale;
+        // Subtle inward drift toward center slots
+        b.vx += (this.logicalWidth / 2 - b.x) * 0.0062 * dtScale;
         b.x += b.vx * dtScale;
         b.y = Math.max(8, b.y + b.vy * dtScale);
 
@@ -586,8 +594,8 @@ export class PlinkoController {
             const ny = d > 0.01 ? dy / d : -0.7;
             b.x = p.x + nx * 10.1;
             b.y = p.y + ny * 10.1;
-            const inwardBias = (this.logicalWidth / 2 - p.x) * 0.003;
-            b.vx = Math.max(-4.5, Math.min(4.5, nx * 2.05 + inwardBias + (Math.random() - 0.5) * 1.1));
+            const inwardBias = (this.logicalWidth / 2 - p.x) * 0.0042;
+            b.vx = Math.max(-4.5, Math.min(4.5, nx * 2.0 + inwardBias + (Math.random() - 0.5) * 1.1));
             b.vy = Math.max(0.6, Math.min(5.5, Math.abs(ny * 2.2) + 0.55));
             p.flash = 1;
             p.flashColor = Math.random() > 0.45 ? '#38bdf8' : '#ffd166';

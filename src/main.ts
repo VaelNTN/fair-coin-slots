@@ -53,6 +53,11 @@ import {
   STARS_PER_VILLAGE,
   TOTAL_WORLD_LEVELS,
 } from './data/worldLevels';
+import {
+  DAILY_CALENDAR_REWARDS,
+  DailyCalendarReward,
+  getLocalDateKey,
+} from './data/dailyCalendar';
 import { CoinDozerController, PlinkoController } from './game/arcadeGames';
 import {
   drawHiLoOutcomeCard,
@@ -69,6 +74,7 @@ import {
   PET_BOOST_DURATION_MS,
   PET_TREATS_SHOP_COST,
   RouletteBetType,
+  spinRouletteNumber,
 } from './game/expansionLogic';
 import { CharacterConfig, MascotMood, MascotRenderer } from './game/mascotRenderer';
 import { CrashRocketCanvas, GashaponCanvas, RouletteWheelCanvas } from './game/newMinigames';
@@ -84,6 +90,7 @@ import {
 import { CITY_PLOT_COORDS, CityWorldController } from './game/villageSceneRenderer';
 import {
   addClubActivityPoints,
+  canClaimDailyCalendarToday,
   DrawnCardResult,
   GameState,
   getCurrentMonthKey,
@@ -91,11 +98,13 @@ import {
   grantCollectibleShopItem,
   grantXp,
   incrementQuest,
+  isDailyStreakMissed,
   loadGameState,
   openCardChest,
   resolveDeviceId,
   saveGameState,
   SimOfferProcessingState,
+  syncMonthlyCalendarState,
   xpNeededForLevel,
 } from './storage/state';
 
@@ -106,12 +115,13 @@ type CharacterSubTab = 'studio' | 'collection' | 'pets';
 type BonusSubTab = 'collection' | 'wheel' | 'cards' | 'pass';
 
 const HALF_HOUR_MS = 30 * 60 * 1000;
-const DAY_MS = 24 * 60 * 60 * 1000;
 const VIP_PASS_DURATION_MS = 5 * 60 * 1000;
+const EMERGENCY_REFILL_COOLDOWN_MS = 2 * 60 * 1000;
 const SCRATCH_CARD_COST = 15_000_000;
 const RAID_COST = 20_000_000;
 const CANNON_COST = 25_000_000;
-const VAULT_MULTS = [1.35, 1.85, 2.6, 4.0, 6.5];
+const VAULT_MULTS = [1.45, 2.2, 3.5, 6.0, 10.0];
+const HILO_MULTS = [1.75, 3.2, 6.0, 11.0, 20.0, 35.0];
 
 class FairCoinSlotsApp {
   private root: HTMLElement;
@@ -138,6 +148,7 @@ class FairCoinSlotsApp {
   private mapRangeIdx = 0;
   private selectedCityPlotIdx: number | null = null;
   private showClubSwitcher = false;
+  private slotsDrawerOpen = false;
 
   private isSpinning = false;
   private spinToken = 0;
@@ -159,7 +170,6 @@ class FairCoinSlotsApp {
   private toastTimer = 0;
   private sessionIntervalId: number | null = null;
   private vipPassTickerId: number | null = null;
-  private sessionAlertShown = false;
   private syncTimer: number | null = null;
   private globalEntries: GlobalSlotsEntry[] = [];
   private globalStatusText = '';
@@ -266,15 +276,51 @@ class FairCoinSlotsApp {
   }
 
   private resetScratchBoard(): void {
-    const options = [
-      { emoji: '🪙', coins: 15_000_000, spins: 0 },
-      { emoji: '💰', coins: 40_000_000, spins: 0 },
-      { emoji: '💎', coins: 100_000_000, spins: 0 },
-      { emoji: '🎟️', coins: 5_000_000, spins: 4 },
-      { emoji: '👑', coins: 220_000_000, spins: 0 },
-      { emoji: '🍀', coins: 25_000_000, spins: 2 },
-    ];
-    this.scratchBoard = options
+    const roll = Math.random();
+    let tiles: { emoji: string; coins: number; spins: number }[];
+    if (roll < 0.6) {
+      // Partial return / near-miss cards (average ~2.5M return vs 15M card cost)
+      const smallPool = [
+        { emoji: '💨', coins: 0, spins: 0 },
+        { emoji: '💨', coins: 0, spins: 0 },
+        { emoji: '💨', coins: 0, spins: 0 },
+        { emoji: '💨', coins: 0, spins: 0 },
+        { emoji: '🪙', coins: 1_500_000, spins: 0 },
+        { emoji: '🪙', coins: Math.random() < 0.5 ? 2_500_000 : 0, spins: 0 },
+      ];
+      tiles = smallPool;
+    } else if (roll < 0.88) {
+      // Solid winning card (~20M + 1 free spin)
+      tiles = [
+        { emoji: '💨', coins: 0, spins: 0 },
+        { emoji: '💨', coins: 0, spins: 0 },
+        { emoji: '🪙', coins: 4_000_000, spins: 0 },
+        { emoji: '💰', coins: 6_500_000, spins: 0 },
+        { emoji: '🍀', coins: 7_500_000, spins: 0 },
+        { emoji: '🎟️', coins: 2_000_000, spins: 1 },
+      ];
+    } else if (roll < 0.97) {
+      // Big win scratch card (~32M + 2 free spins)
+      tiles = [
+        { emoji: '💨', coins: 0, spins: 0 },
+        { emoji: '🪙', coins: 4_000_000, spins: 0 },
+        { emoji: '💰', coins: 8_000_000, spins: 0 },
+        { emoji: '💎', coins: 14_000_000, spins: 0 },
+        { emoji: '🍀', coins: 4_000_000, spins: 1 },
+        { emoji: '🎟️', coins: 2_000_000, spins: 1 },
+      ];
+    } else {
+      // Jackpot scratch card (~62M + 4 free spins)
+      tiles = [
+        { emoji: '🪙', coins: 5_000_000, spins: 0 },
+        { emoji: '💰', coins: 10_000_000, spins: 0 },
+        { emoji: '💎', coins: 16_000_000, spins: 0 },
+        { emoji: '👑', coins: 25_000_000, spins: 0 },
+        { emoji: '🍀', coins: 4_000_000, spins: 2 },
+        { emoji: '🎟️', coins: 2_000_000, spins: 2 },
+      ];
+    }
+    this.scratchBoard = tiles
       .sort(() => Math.random() - 0.5)
       .map((o) => ({ ...o, revealed: false }));
   }
@@ -286,10 +332,14 @@ class FairCoinSlotsApp {
   }
 
   private renderShell(): void {
+    const devDebugBtnHtml = import.meta.env.DEV
+      ? `<button class="icon-btn" id="btn-debug" style="padding:2px 6px;font-size:10px;" aria-label="Debug Menu">🛠️ Test</button>`
+      : '';
+
     this.root.innerHTML = `
       <header class="hud">
         <div class="mascot-box" id="mascot-tap" title="Customize your character">
-          <canvas id="hud-char-canvas" width="90" height="90" style="width:54px;height:54px;"></canvas>
+          <canvas id="hud-char-canvas" width="90" height="90" style="width:48px;height:48px;"></canvas>
         </div>
         <div class="hud-center">
           <div class="studio-brand-row">
@@ -298,7 +348,7 @@ class FairCoinSlotsApp {
           </div>
           <div class="coin-pill">
             <span class="coin-val" id="hud-coins">🪙 1.5B</span>
-            <button class="rescue-btn" id="hud-rescue" style="display:none;">+Rescue</button>
+            <button class="rescue-btn" id="hud-rescue" style="display:none;">🐷 Refill</button>
           </div>
           <div class="xp-row">
             <span class="lvl-badge" id="hud-lvl">LVL 1</span>
@@ -308,14 +358,14 @@ class FairCoinSlotsApp {
         </div>
         <div class="hud-actions">
           <div class="hud-btn-row">
+            <button class="icon-btn calendar-hud-btn" id="btn-daily-calendar" aria-label="Monthly Daily Calendar" title="31-Day Monthly Rewards Calendar">
+              📅<span class="calendar-pulse-dot hidden" id="hud-calendar-dot"></span>
+            </button>
             <button class="icon-btn" id="btn-collection-vault" aria-label="All Collectibles" title="All Collectibles & Duplicates">📦</button>
-            <button class="icon-btn" id="btn-info" aria-label="Game Info">ℹ️</button>
-            <button class="icon-btn" id="btn-sound" aria-label="Toggle Sound">🔊</button>
+            <button class="icon-btn" id="btn-sound" aria-label="Toggle Sound" title="Mute / Unmute Sound">🔊</button>
+            <button class="icon-btn" id="btn-info" aria-label="Game Info" title="Game Info">ℹ️</button>
           </div>
-          <div class="hud-btn-row">
-            <button class="icon-btn" id="btn-debug" style="padding:2px 6px;font-size:10px;" aria-label="Debug Menu">🛠️ Test</button>
-            <span class="session-pill" id="hud-session">0m</span>
-          </div>
+          ${devDebugBtnHtml ? `<div class="hud-btn-row">${devDebugBtnHtml}</div>` : ''}
         </div>
       </header>
 
@@ -345,18 +395,25 @@ class FairCoinSlotsApp {
         const targetTab = btn.dataset.tab as TabId;
         const wasAlreadyActive = this.activeTab === targetTab;
         this.switchTab(targetTab);
-        if (targetTab === 'slots') {
-          this.openSlotsSquarePickerModal();
-        } else if (targetTab === 'arcade') {
-          this.openArcadeSquarePickerModal();
-        } else if (targetTab === 'club' && wasAlreadyActive) {
-          this.openCitySquarePickerModal();
-        } else if (targetTab === 'character' && wasAlreadyActive) {
-          this.openStyleSquarePickerModal();
-        } else if (targetTab === 'bonuses' && wasAlreadyActive) {
-          this.openVaultSquarePickerModal();
+        if (wasAlreadyActive) {
+          if (targetTab === 'slots') {
+            this.openSlotsSquarePickerModal();
+          } else if (targetTab === 'arcade') {
+            this.openArcadeSquarePickerModal();
+          } else if (targetTab === 'club') {
+            this.openCitySquarePickerModal();
+          } else if (targetTab === 'character') {
+            this.openStyleSquarePickerModal();
+          } else if (targetTab === 'bonuses') {
+            this.openVaultSquarePickerModal();
+          }
         }
       });
+    });
+
+    this.root.querySelector('#btn-daily-calendar')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      this.openDailyCalendarModal();
     });
 
     this.root.querySelector('#btn-collection-vault')?.addEventListener('click', () => {
@@ -370,26 +427,33 @@ class FairCoinSlotsApp {
       this.openInfoModal();
     });
 
-    this.root.querySelector('#btn-debug')?.addEventListener('click', () => {
-      this.sfx.playTap();
-      this.openDebugModal();
-    });
+    if (import.meta.env.DEV) {
+      this.root.querySelector('#btn-debug')?.addEventListener('click', () => {
+        this.sfx.playTap();
+        this.openDebugModal();
+      });
+    }
 
     const soundBtn = this.root.querySelector<HTMLButtonElement>('#btn-sound')!;
+    const syncSoundBtn = () => {
+      soundBtn.textContent = this.state.soundEnabled ? '🔊' : '🔇';
+      soundBtn.classList.toggle('muted', !this.state.soundEnabled);
+      soundBtn.setAttribute('aria-pressed', String(!this.state.soundEnabled));
+    };
     soundBtn.addEventListener('click', () => {
       this.state.soundEnabled = !this.state.soundEnabled;
       this.sfx.enabled = this.state.soundEnabled;
-      soundBtn.textContent = this.state.soundEnabled ? '🔊' : '🔇';
+      syncSoundBtn();
       saveGameState(this.state);
       if (this.state.soundEnabled) this.sfx.playTap();
     });
-    soundBtn.textContent = this.state.soundEnabled ? '🔊' : '🔇';
+    syncSoundBtn();
 
     this.root.querySelector('#mascot-tap')?.addEventListener('click', () => {
       this.switchTab('character');
     });
 
-    this.root.querySelector('#hud-rescue')?.addEventListener('click', () => this.claimRescueBonus());
+    this.root.querySelector('#hud-rescue')?.addEventListener('click', () => this.openEmergencyRefillModal());
   }
 
   private initHudCharacter(): void {
@@ -519,19 +583,26 @@ class FairCoinSlotsApp {
       window.clearInterval(this.sessionIntervalId);
     }
     const updateTimer = () => {
-      const mins = Math.floor((Date.now() - this.state.sessionStartAt) / 60_000);
-      const pill = this.root.querySelector<HTMLElement>('#hud-session');
-      if (pill) pill.textContent = `${mins}m`;
-      if (!this.sessionAlertShown && this.state.reminderMinutes > 0 && mins >= this.state.reminderMinutes) {
-        this.sessionAlertShown = true;
-        this.showToast(`Break tip: you've played ${mins} mins. Take a breather anytime!`);
-      }
       if (!document.hidden && this.activeTab === 'bonuses' && this.bonusSub === 'wheel' && !this.wheelSpinning) {
         this.renderBonusesTab();
       }
+      this.syncCalendarBadge();
     };
     updateTimer();
     this.sessionIntervalId = window.setInterval(updateTimer, 15_000);
+  }
+
+  private getEmergencyRefillRemainingMs(now = Date.now()): number {
+    if (!this.state.lastEmergencyRefillAt) return 0;
+    return Math.max(0, EMERGENCY_REFILL_COOLDOWN_MS - (now - this.state.lastEmergencyRefillAt));
+  }
+
+  private syncCalendarBadge(): void {
+    const ready = canClaimDailyCalendarToday(this.state);
+    const dot = this.root.querySelector<HTMLElement>('#hud-calendar-dot');
+    if (dot) dot.classList.toggle('hidden', !ready);
+    const btn = this.root.querySelector<HTMLElement>('#btn-daily-calendar');
+    if (btn) btn.classList.toggle('calendar-ready-glow', ready);
   }
 
   private startVipPassTicker(): void {
@@ -579,6 +650,24 @@ class FairCoinSlotsApp {
         }
       }
 
+      // Tick Emergency Piggy Bank Refill countdown
+      const refillRem = this.getEmergencyRefillRemainingMs();
+      const refillCdEl = this.root.querySelector<HTMLElement>('#emergency-refill-countdown');
+      const refillSmashBtn = this.root.querySelector<HTMLButtonElement>('#btn-emergency-smash');
+      if (refillCdEl) {
+        refillCdEl.textContent = refillRem > 0 ? this.formatMmSs(refillRem) : 'READY!';
+      }
+      if (refillSmashBtn && refillRem <= 0 && refillSmashBtn.disabled) {
+        refillSmashBtn.disabled = false;
+        const econ = getWorldEconomyMultiplier(this.state.villageLevel);
+        const bonus = Math.round(50_000_000 * econ);
+        refillSmashBtn.textContent = `🔨 Break Emergency Piggy (+${formatCoins(bonus)} FREE!)`;
+      }
+      const hudRescue = this.root.querySelector<HTMLButtonElement>('#hud-rescue');
+      if (hudRescue && hudRescue.style.display !== 'none') {
+        hudRescue.textContent = refillRem > 0 ? `🐷 ${this.formatMmSs(refillRem)}` : '🐷 Refill';
+      }
+
       // Tick Flash Event & Pet Boost timers in UI
       const flash = this.getFlashEvent();
       const flashEl = this.root.querySelector<HTMLElement>('#flash-event-timer');
@@ -591,8 +680,10 @@ class FairCoinSlotsApp {
       }
       const hudPetTimer = this.root.querySelector<HTMLElement>('#hud-pet-timer');
       if (hudPetTimer) {
-        hudPetTimer.textContent = petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦁 Feed Pet';
+        hudPetTimer.textContent = petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦁 Pet';
       }
+
+      this.syncCalendarBadge();
     };
     tick();
     this.vipPassTickerId = window.setInterval(tick, 1000);
@@ -714,8 +805,14 @@ class FairCoinSlotsApp {
     }
     if (rescueBtn) {
       const minBet = this.getSlotBetSteps()[0] ?? 100_000;
-      rescueBtn.style.display = this.state.coins < Math.max(1_000_000, minBet) ? 'inline-block' : 'none';
+      const showRefill = this.state.coins < Math.max(1_000_000, minBet);
+      rescueBtn.style.display = showRefill ? 'inline-block' : 'none';
+      if (showRefill) {
+        const rem = this.getEmergencyRefillRemainingMs();
+        rescueBtn.textContent = rem > 0 ? `🐷 ${this.formatMmSs(rem)}` : '🐷 Refill';
+      }
     }
+    this.syncCalendarBadge();
   }
 
   private renderActiveTab(): void {
@@ -795,142 +892,150 @@ class FairCoinSlotsApp {
     const vipPillHtml = this.isPassProcessing()
       ? `<button class="vip-pill" id="btn-vip-quick"><span class="vip-mini-dot"></span><span>VIP <span id="vip-quick-timer">${this.formatMmSs(this.state.passProcessingUntil! - Date.now())}</span></span></button>`
       : this.isPassClaimedThisMonth()
-        ? `<button class="vip-pill" style="border-color:#06d6a0;" id="btn-vip-quick">👑 VIP 3x ON</button>`
-        : `<button class="vip-pill" id="btn-vip-quick">👑 €5.00 VIP Pass</button>`;
+        ? `<button class="vip-pill" style="border-color:#06d6a0;" id="btn-vip-quick">👑 VIP 3x</button>`
+        : `<button class="vip-pill" id="btn-vip-quick">👑 €5.00 VIP</button>`;
 
     const petPillHtml = `<button class="pet-status-pill" id="btn-hud-pet"><span id="hud-pet-timer">${
-      petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦁 Feed Pet'
+      petBoost.pet ? `${petBoost.pet.emoji} ${this.formatMmSs(petBoost.remainingMs)}` : '🦁 Pet'
     }</span></button>`;
 
-    const worldPillHtml = `<button class="world-pill" id="btn-hud-world">🏙️ W${this.state.villageLevel}/${TOTAL_WORLD_LEVELS}+ (${stars}/${STARS_PER_VILLAGE}★)</button>`;
+    const worldPillHtml = `<button class="world-pill" id="btn-hud-world">🏙️ W${this.state.villageLevel} (${stars}/${STARS_PER_VILLAGE}★)</button>`;
 
     panel.innerHTML = `
-      <div class="event-milestone-bar" id="btn-event-milestone" title="Spin, Attack & Heist to fill the Event Bar!">
-        <div class="ev-badge-ico">🐷</div>
-        <div class="ev-center-col">
-          <div class="ev-top-row">
-            <span class="ev-title">Golden Piggy Frenzy • Stage ${evInfo.stage}</span>
-            <span class="ev-pts">${evInfo.ptsInStage}/${evInfo.targetPts} pts</span>
-          </div>
-          <div class="ev-progress-track">
-            <div class="ev-progress-fill" style="width:${evInfo.pct}%;"></div>
-          </div>
-        </div>
-        <div class="ev-reward-pill">
-          <span>🪙 +${formatCoins(evInfo.rewardCoins)}</span>
-          <small>+${evInfo.rewardSpins}🎟️ ${evInfo.packEmoji}</small>
-        </div>
-      </div>
-
-      <div class="social-slot-dock">
-        <button type="button" class="social-dock-btn shields" id="btn-slot-shields" title="Your City Shields protect against Rival Attacks">
-          <span class="dock-shields-row">${shieldIconsHtml}</span>
-          <small>Shields ${curShields}/${maxShields}</small>
+      <div class="slots-top-strip">
+        <button type="button" class="slots-machine-pill" id="btn-open-slots-picker" title="Switch Slot Machine">
+          <span class="slots-machine-ico">${machine.badgeEmoji}</span>
+          <span class="slots-machine-name">${machine.name}</span>
+          <span class="slots-caret">▾</span>
         </button>
-        <button type="button" class="social-dock-btn attack" id="btn-slot-attack" title="Launch a Lightning Hammer Attack on a Rival City!">
-          <span class="dock-main-ico">⚔️ Attack</span>
-          <small>Smash City</small>
-        </button>
-        <button type="button" class="social-dock-btn heist" id="btn-slot-heist" title="Dig 3 of 4 Golden Piggy Vaults in the Coin King's Treasury!">
-          <span class="dock-main-ico">🐷 Heist</span>
-          <small>Steal Gold</small>
-        </button>
-        <button type="button" class="social-dock-btn rivals ${this.state.revengeReady ? 'revenge-pulse' : ''}" id="btn-slot-rivals" title="View Rivals Battle Log & Take 2x Revenge!">
-          <span class="dock-main-ico">${this.state.revengeReady ? '⚡ Revenge!' : '🎯 Rivals'}</span>
-          <small>${this.state.revengeReady ? '2x Payout!' : 'Battle Log'}</small>
+        <button type="button" class="slots-drawer-toggle ${this.slotsDrawerOpen ? 'open' : ''} ${this.state.revengeReady ? 'revenge-pulse' : ''}" id="btn-slots-drawer" aria-expanded="${this.slotsDrawerOpen}">
+          <span>🐷 S${evInfo.stage} (${evInfo.pct}%)</span>
+          <span>• ${this.state.revengeReady ? '⚡ Revenge!' : `${flash.event.emoji} Events`} ${this.slotsDrawerOpen ? '▴' : '▾'}</span>
         </button>
       </div>
 
-      <div class="flash-event-banner" style="border-color:${flash.event.color};">
-        <span>${flash.event.emoji} <b>${flash.event.name}:</b> ${flash.event.desc}</span>
-        <span style="color:${flash.event.color};white-space:nowrap;" id="flash-event-timer">${this.formatMmSs(flash.remainingMs)}</span>
-      </div>
-
-      <div class="mini-progress-wrap">
-        <span style="cursor:pointer;" id="slots-prog-world">
-          ${upgradesLeft === 0 ? `🎉 World ${this.state.villageLevel} Ready!` : `🔨 <b>${upgradesLeft}</b> upgrade${upgradesLeft === 1 ? '' : 's'} to World ${this.state.villageLevel + 1}!`}
-        </span>
-        <span style="cursor:pointer;color:#ffd166;" id="slots-prog-album">
-          ${this.getClosestAlbumHint()}${totalPacks > 0 ? ` • ${totalPacks}🎁` : ''}
-        </span>
-      </div>
-
-      <div class="picker-header-bar" id="btn-open-slots-picker" style="cursor:pointer;">
-        <div class="picker-current-label">
-          <span style="font-size:20px;">${machine.badgeEmoji}</span>
-          <span>${machine.name}</span>
-        </div>
-        <button type="button" class="picker-open-btn">⊞ All Slots (${SLOT_MACHINES.length})</button>
-      </div>
-
-      <div class="jackpot-bar">
-        <div class="jp-box mini"><div class="jp-label">MINI</div><div class="jp-val">${formatCoins(this.state.jackpots.mini)}</div></div>
-        <div class="jp-box minor"><div class="jp-label">MINOR</div><div class="jp-val">${formatCoins(this.state.jackpots.minor)}</div></div>
-        <div class="jp-box major"><div class="jp-label">MAJOR</div><div class="jp-val">${formatCoins(this.state.jackpots.major)}</div></div>
-        <div class="jp-box grand"><div class="jp-label">GRAND</div><div class="jp-val">${formatCoins(this.state.jackpots.grand)}</div></div>
-      </div>
-
-      <div class="slot-quick-bar">
-        <button class="piggy-pill" id="btn-piggy-break">🐷 Piggy Vault: ${formatCoins(this.state.piggyBankCoins)}</button>
-        ${worldPillHtml}
-        ${
-          this.state.freeSpins > 0
-            ? `<span class="freespin-pill">🎟️ ${this.state.freeSpins} FREE (${this.state.freeSpinMultiplier}x)</span>`
-            : petPillHtml
-        }
-        ${
-          this.lastGambleAmount > 0 && !this.isSpinning
-            ? `<button class="piggy-pill" style="border-color:#06d6a0;" id="btn-gamble-win">🃏 Double ${formatCoins(this.lastGambleAmount)}?</button>`
-            : vipPillHtml
-        }
-      </div>
-
-      <div class="slot-cabinet" style="background:${machine.gradient}; border-color:${machine.frameColor};">
-        <div class="marquee-lights">${this.buildMarqueeBulbs(11)}</div>
-        <div class="reels-grid" id="reels-grid">
-          ${this.currentGrid
-            .map(
-              (col, cIdx) => `
-            <div class="reel-col ${this.isSpinning ? 'spinning' : ''}" data-col="${cIdx}">
-              ${col
-                .map((sym, rIdx) => {
-                  const isWin = this.winningCells.has(`${cIdx}-${rIdx}`);
-                  return `
-                    <div class="reel-cell ${isWin ? 'win-glow' : ''}" style="background:${sym.bg};">
-                      <span class="sym-emoji">${sym.emoji}</span>
-                      <span class="sym-tag">${sym.label}</span>
-                    </div>
-                  `;
-                })
-                .join('')}
+      <div class="slots-event-drawer ${this.slotsDrawerOpen ? 'open' : ''}">
+        <div class="event-milestone-bar" id="btn-event-milestone" title="Spin, Attack & Heist to fill the Event Bar!">
+          <div class="ev-badge-ico">🐷</div>
+          <div class="ev-center-col">
+            <div class="ev-top-row">
+              <span class="ev-title">Golden Piggy Frenzy • Stage ${evInfo.stage}</span>
+              <span class="ev-pts">${evInfo.ptsInStage}/${evInfo.targetPts} pts</span>
             </div>
-          `
-            )
-            .join('')}
-          ${this.buildPaylinesSvg()}
+            <div class="ev-progress-track">
+              <div class="ev-progress-fill" style="width:${evInfo.pct}%;"></div>
+            </div>
+          </div>
+          <div class="ev-reward-pill">
+            <span>🪙 +${formatCoins(evInfo.rewardCoins)}</span>
+            <small>+${evInfo.rewardSpins}🎟️ ${evInfo.packEmoji}</small>
+          </div>
         </div>
 
-        <div class="win-banner ${isBig ? 'big' : ''}" id="win-banner">
-          ${bannerText ?? 'Spin & win! Land 🔨 ATTACK, 🐷 HEIST, 🛡️ SHIELD & 🪙 COIN GRAB!'}
+        <div class="social-slot-dock">
+          <button type="button" class="social-dock-btn shields" id="btn-slot-shields" title="Your City Shields protect against Rival Attacks">
+            <span class="dock-shields-row">${shieldIconsHtml}</span>
+            <small>Shields ${curShields}/${maxShields}</small>
+          </button>
+          <button type="button" class="social-dock-btn attack" id="btn-slot-attack" title="Launch a Lightning Hammer Attack on a Rival City!">
+            <span class="dock-main-ico">⚔️ Attack</span>
+            <small>Smash City</small>
+          </button>
+          <button type="button" class="social-dock-btn heist" id="btn-slot-heist" title="Dig 3 of 4 Golden Piggy Vaults in the Coin King's Treasury!">
+            <span class="dock-main-ico">🐷 Heist</span>
+            <small>Steal Gold</small>
+          </button>
+          <button type="button" class="social-dock-btn rivals ${this.state.revengeReady ? 'revenge-pulse' : ''}" id="btn-slot-rivals" title="View Rivals Battle Log & Take 2x Revenge!">
+            <span class="dock-main-ico">${this.state.revengeReady ? '⚡ Revenge!' : '🎯 Rivals'}</span>
+            <small>${this.state.revengeReady ? '2x Payout!' : 'Battle Log'}</small>
+          </button>
         </div>
-        <div class="marquee-lights">${this.buildMarqueeBulbs(11)}</div>
+
+        <div class="flash-event-banner" style="border-color:${flash.event.color};">
+          <span>${flash.event.emoji} <b>${flash.event.name}:</b> ${flash.event.desc}</span>
+          <span style="color:${flash.event.color};white-space:nowrap;" id="flash-event-timer">${this.formatMmSs(flash.remainingMs)}</span>
+        </div>
+
+        <div class="mini-progress-wrap">
+          <span style="cursor:pointer;" id="slots-prog-world">
+            ${upgradesLeft === 0 ? `🎉 World ${this.state.villageLevel} Ready!` : `🔨 <b>${upgradesLeft}</b> upgrade${upgradesLeft === 1 ? '' : 's'} to W${this.state.villageLevel + 1}`}
+          </span>
+          <span style="cursor:pointer;color:#ffd166;" id="slots-prog-album">
+            ${this.getClosestAlbumHint()}${totalPacks > 0 ? ` • ${totalPacks}🎁` : ''}
+          </span>
+        </div>
       </div>
 
-      <div class="controls-bar">
-        <div class="bet-box">
-          <button class="bet-step-btn" id="btn-bet-down">−</button>
-          <div class="bet-display">
-            <small>BET</small>
-            <strong>${formatCoins(bet)}</strong>
-          </div>
-          <button class="bet-step-btn" id="btn-bet-up">+</button>
+      <div class="slots-stage-wrap">
+        <div class="jackpot-bar">
+          <div class="jp-box mini"><div class="jp-label">MINI</div><div class="jp-val">${formatCoins(this.state.jackpots.mini)}</div></div>
+          <div class="jp-box minor"><div class="jp-label">MINOR</div><div class="jp-val">${formatCoins(this.state.jackpots.minor)}</div></div>
+          <div class="jp-box major"><div class="jp-label">MAJOR</div><div class="jp-val">${formatCoins(this.state.jackpots.major)}</div></div>
+          <div class="jp-box grand"><div class="jp-label">GRAND</div><div class="jp-val">${formatCoins(this.state.jackpots.grand)}</div></div>
         </div>
 
-        <button class="mini-toggle ${this.turboSpin ? 'active' : ''}" id="btn-turbo">⚡</button>
-        <button class="mini-toggle ${this.autoSpin ? 'active' : ''}" id="btn-auto">AUTO</button>
-        <button class="spin-btn ${this.state.freeSpins > 0 ? 'freespin-mode' : ''}" id="btn-spin">
-          ${this.state.freeSpins > 0 ? `FREE (${this.state.freeSpins})` : 'SPIN'}
-        </button>
+        <div class="slot-quick-bar">
+          <button class="piggy-pill" id="btn-piggy-break">🐷 ${formatCoins(this.state.piggyBankCoins)}</button>
+          ${worldPillHtml}
+          ${
+            this.state.freeSpins > 0
+              ? `<span class="freespin-pill">🎟️ ${this.state.freeSpins} FREE (${this.state.freeSpinMultiplier}x)</span>`
+              : petPillHtml
+          }
+          ${
+            this.lastGambleAmount > 0 && !this.isSpinning
+              ? `<button class="piggy-pill" style="border-color:#06d6a0;" id="btn-gamble-win">🃏 2x ${formatCoins(this.lastGambleAmount)}?</button>`
+              : vipPillHtml
+          }
+        </div>
+
+        <div class="slot-cabinet" style="background:${machine.gradient}; border-color:${machine.frameColor};">
+          <div class="marquee-lights">${this.buildMarqueeBulbs(11)}</div>
+          <div class="reels-grid" id="reels-grid">
+            ${this.currentGrid
+              .map(
+                (col, cIdx) => `
+              <div class="reel-col ${this.isSpinning ? 'spinning' : ''}" data-col="${cIdx}">
+                ${col
+                  .map((sym, rIdx) => {
+                    const isWin = this.winningCells.has(`${cIdx}-${rIdx}`);
+                    return `
+                      <div class="reel-cell ${isWin ? 'win-glow' : ''}" style="background:${sym.bg};">
+                        <span class="sym-emoji">${sym.emoji}</span>
+                        <span class="sym-tag">${sym.label}</span>
+                      </div>
+                    `;
+                  })
+                  .join('')}
+              </div>
+            `
+              )
+              .join('')}
+            ${this.buildPaylinesSvg()}
+          </div>
+
+          <div class="win-banner ${isBig ? 'big' : ''}" id="win-banner">
+            ${bannerText ?? 'Spin & win! Land 🔨 ATTACK, 🐷 HEIST, 🛡️ SHIELD & 🪙 COIN GRAB!'}
+          </div>
+          <div class="marquee-lights">${this.buildMarqueeBulbs(11)}</div>
+        </div>
+
+        <div class="controls-bar">
+          <div class="bet-box">
+            <button class="bet-step-btn" id="btn-bet-down">−</button>
+            <div class="bet-display">
+              <small>BET</small>
+              <strong>${formatCoins(bet)}</strong>
+            </div>
+            <button class="bet-step-btn" id="btn-bet-up">+</button>
+          </div>
+
+          <button class="mini-toggle ${this.turboSpin ? 'active' : ''}" id="btn-turbo">⚡</button>
+          <button class="mini-toggle ${this.autoSpin ? 'active' : ''}" id="btn-auto">AUTO</button>
+          <button class="spin-btn ${this.state.freeSpins > 0 ? 'freespin-mode' : ''}" id="btn-spin">
+            ${this.state.freeSpins > 0 ? `FREE (${this.state.freeSpins})` : 'SPIN'}
+          </button>
+        </div>
       </div>
     `;
 
@@ -938,6 +1043,12 @@ class FairCoinSlotsApp {
       if (this.isSpinning) return;
       this.sfx.playTap();
       this.openSlotsSquarePickerModal();
+    });
+
+    panel.querySelector('#btn-slots-drawer')?.addEventListener('click', () => {
+      this.slotsDrawerOpen = !this.slotsDrawerOpen;
+      this.sfx.playTap();
+      this.renderSlotsTab(bannerText, isBig);
     });
 
     panel.querySelector('#btn-event-milestone')?.addEventListener('click', () => {
@@ -1517,7 +1628,7 @@ class FairCoinSlotsApp {
     if (!usingFreeSpin && this.state.coins < bet) {
       if (this.state.coins < betSteps[0]) {
         this.autoSpin = false;
-        this.claimRescueBonus();
+        this.openEmergencyRefillModal();
         return;
       }
       while (this.state.betIndex > 0 && betSteps[this.state.betIndex] > this.state.coins) {
@@ -1880,7 +1991,7 @@ class FairCoinSlotsApp {
         }
         let added = false;
         for (let i = 0; i < cells.length; i++) {
-          if (cells[i] === null && Math.random() < 0.28) {
+          if (cells[i] === null && Math.random() < 0.22) {
             cells[i] = generateHoldCoinValue(bet);
             added = true;
           }
@@ -2083,7 +2194,7 @@ class FairCoinSlotsApp {
 
       <div class="card" style="text-align:center;">
         <h2>🃏 Hi-Lo Card Streak</h2>
-        <p>Guess if the next card is <b>Higher</b> or <b>Lower</b>! Streak pays up to <b>12x</b>.</p>
+        <p>Guess if the next card is <b>Higher</b> or <b>Lower</b>! Streak pays up to <b>35x</b>.</p>
         <div class="hilo-card ${this.hiloCard.isRed ? 'red' : ''}">
           <span style="font-size:32px;line-height:1;">${formatHiLoRank(this.hiloCard.rank)}</span>
           <span style="font-size:24px;line-height:1;">${this.hiloCard.suit}</span>
@@ -2135,7 +2246,7 @@ class FairCoinSlotsApp {
     launchBtn.addEventListener('click', () => {
       if (!this.crashCtrl || this.crashCtrl.isFlying()) return;
       if (this.state.coins < this.crashBet) {
-        this.showToast(`Need ${formatCoins(this.crashBet)} coins! Lower your bet or play Lucky Games.`);
+        this.openEmergencyRefillModal();
         return;
       }
       this.state.coins -= this.crashBet;
@@ -2204,7 +2315,7 @@ class FairCoinSlotsApp {
 
     body.querySelector('#btn-hilo-start')?.addEventListener('click', () => {
       if (this.state.coins < this.hiloBet) {
-        this.showToast(`Need ${formatCoins(this.hiloBet)} coins for Hi-Lo!`);
+        this.openEmergencyRefillModal();
         return;
       }
       this.state.coins -= this.hiloBet;
@@ -2225,7 +2336,7 @@ class FairCoinSlotsApp {
       this.hiloCard = outcome.next;
       if (outcome.won) {
         this.hiloStreak += 1;
-        this.hiloMult = Number((1 + this.hiloStreak * 0.65 + (this.hiloStreak >= 3 ? 0.5 : 0)).toFixed(2));
+        this.hiloMult = HILO_MULTS[Math.min(HILO_MULTS.length - 1, this.hiloStreak - 1)] ?? 35;
         this.sfx.playCoin();
         if (this.hiloStreak >= 6) {
           const payout = Math.round(this.hiloBet * this.hiloMult);
@@ -2319,7 +2430,7 @@ class FairCoinSlotsApp {
 
       <div class="card" style="text-align:center;">
         <h2>🔢 Keno Lucky Bingo</h2>
-        <p>Pick <b>5 numbers</b> (1–24), draw 8 balls! 3 hits = <b>2.5x</b> • 4 = <b>8x</b> • 5 = <b>35x</b>!</p>
+        <p>Pick <b>5 numbers</b> (1–24), draw 8 balls! 3 hits = <b>2.4x</b> • 4 = <b>8x</b> • 5 = <b>35x</b>!</p>
         <div class="subtab-strip" style="justify-content:center;max-width:100%;">
           ${kBets
             .map(
@@ -2375,7 +2486,7 @@ class FairCoinSlotsApp {
     spinBtn.addEventListener('click', () => {
       if (!this.rouletteCtrl || this.rouletteCtrl.isSpinning()) return;
       if (this.state.coins < this.rouletteBet) {
-        this.showToast(`Need ${formatCoins(this.rouletteBet)} coins for Roulette!`);
+        this.openEmergencyRefillModal();
         return;
       }
       this.state.coins -= this.rouletteBet;
@@ -2384,7 +2495,7 @@ class FairCoinSlotsApp {
       this.renderHud();
       spinBtn.disabled = true;
 
-      const landedNum = Math.floor(Math.random() * 37);
+      const landedNum = spinRouletteNumber(this.rouletteBetType);
       this.rouletteCtrl.spinTo(
         landedNum,
         () => {
@@ -2584,7 +2695,7 @@ class FairCoinSlotsApp {
     body.innerHTML = `
       <div class="card" style="align-items:center;text-align:center;">
         <h2>🪙 Coin Dozer</h2>
-        <p>Drop coins (1M each, free if under 1M) to push 💎 15M gems, 🎟️ free spins & 🎁 chests!</p>
+        <p>Drop coins (1M each) to push 💎 4.5M gems, 🎟️ free spins & 🎁 chests off the center lip!</p>
         <canvas id="dozer-canvas" width="300" height="250" style="border-radius:14px;border:2px solid #ffd166;cursor:pointer;max-width:100%;"></canvas>
         <button class="action-btn" id="btn-dozer-drop">Drop Coin (1M)</button>
       </div>
@@ -2593,10 +2704,11 @@ class FairCoinSlotsApp {
     const canvas = body.querySelector<HTMLCanvasElement>('#dozer-canvas')!;
     this.dozerCtrl = new CoinDozerController(canvas, {
       onDropCost: (cost) => {
-        const effectiveCost = this.state.coins >= cost ? cost : 0;
-        if (effectiveCost > 0) {
-          this.state.coins -= effectiveCost;
+        if (this.state.coins < cost) {
+          this.openEmergencyRefillModal();
+          return false;
         }
+        this.state.coins -= cost;
         incrementQuest(this.state, 'arcade', 1);
         saveGameState(this.state);
         this.renderHud();
@@ -2609,7 +2721,7 @@ class FairCoinSlotsApp {
         this.state.freeSpins += spins;
         saveGameState(this.state);
         this.renderHud();
-        if (chests > 0 || spins > 0 || c >= 10_000_000) {
+        if (chests > 0 || spins > 0 || c >= 4_000_000) {
           this.showToast(`🪙 Dozer prize: +${formatCoins(c)}${chests ? ` +${chests}🎁` : ''}${spins ? ` +${spins}🎟️` : ''}`);
         }
       },
@@ -2635,7 +2747,7 @@ class FairCoinSlotsApp {
     body.innerHTML = `
       <div class="card" style="align-items:center;text-align:center;">
         <h2>🟢 Plinko Drop</h2>
-        <p>Wager per ball and drop for up to <b>12x</b> edge multipliers!</p>
+        <p>Wager per ball and drop for up to <b>10x</b> edge multipliers!</p>
         <div class="subtab-strip" style="justify-content:center;max-width:100%;">
           ${plinkoBets
             .map(
@@ -2678,7 +2790,7 @@ class FairCoinSlotsApp {
 
     body.querySelector('#btn-plinko-drop')?.addEventListener('click', () => {
       if (this.state.coins < this.plinkoBet) {
-        this.showToast(`Need ${formatCoins(this.plinkoBet)} coins! Lower your bet or play Lucky Games.`);
+        this.openEmergencyRefillModal();
         return;
       }
       this.state.coins -= this.plinkoBet;
@@ -2716,7 +2828,7 @@ class FairCoinSlotsApp {
       </div>
 
       <div class="card">
-        <h2>🧨 Bomb Vault (Up to 6.5x)</h2>
+        <h2>🧨 Bomb Vault (Up to 10x)</h2>
         <p>Crack safe tiles to climb multipliers — watch out for hidden bombs!</p>
         ${
           !this.vaultActive
@@ -2768,14 +2880,13 @@ class FairCoinSlotsApp {
     const playFlip = (side: 'gold' | 'ruby') => {
       const stake = this.highRollerBet === -1 ? Math.max(10_000_000, Math.floor(this.state.coins * 0.5)) : this.highRollerBet;
       if (this.state.coins < stake) {
-        this.showToast(`Need ${formatCoins(stake)} coins! Play Lucky Games or lower wager.`);
+        this.openEmergencyRefillModal();
         return;
       }
       this.state.coins -= stake;
       incrementQuest(this.state, 'arcade', 1);
 
-      // House-rigged odds: 38% win / 62% house win
-      const won = Math.random() < 0.38;
+      const won = Math.random() < 0.4;
       const landed = won ? side : side === 'gold' ? 'ruby' : 'gold';
       if (won) {
         const payout = stake * 2;
@@ -2806,7 +2917,7 @@ class FairCoinSlotsApp {
 
     body.querySelector('#btn-vault-start')?.addEventListener('click', () => {
       if (this.state.coins < this.vaultBet) {
-        this.showToast(`Need ${formatCoins(this.vaultBet)} coins to enter Bomb Vault!`);
+        this.openEmergencyRefillModal();
         return;
       }
       this.state.coins -= this.vaultBet;
@@ -2830,8 +2941,7 @@ class FairCoinSlotsApp {
         const idx = Number(btn.dataset.vaultCell);
         if (this.vaultRevealed[idx] !== 'hidden') return;
 
-        // Subtle house edge: bombs set + extra trap probability after 2+ greed steps
-        const extraTrapChance = this.vaultStep >= 2 ? 0.35 : 0.12;
+        const extraTrapChance = this.vaultStep === 0 ? 0.15 : this.vaultStep === 1 ? 0.2 : 0.28;
         const hitBomb = this.vaultBombs.has(idx) || Math.random() < extraTrapChance;
 
         if (hitBomb) {
@@ -2889,29 +2999,27 @@ class FairCoinSlotsApp {
 
   private renderScratchAndDice(body: HTMLElement): void {
     const allDone = this.scratchBoard.every((s) => s.revealed);
-    const scratchFree = this.state.coins < SCRATCH_CARD_COST;
     const diceBets = [10_000_000, 50_000_000, 200_000_000];
-    const effectiveDiceBet = this.state.coins >= this.diceBet ? this.diceBet : 0;
 
     body.innerHTML = `
       <div class="card">
         <h2>🎫 Golden Scratch Card</h2>
-        <p>Scratch all 6 tiles for guaranteed profit + free spins!</p>
+        <p>Scratch all 6 tiles to reveal hidden coins, gems & free spins!</p>
         <div class="scratch-grid">
           ${this.scratchBoard
             .map((cell, idx) =>
               cell.revealed
-                ? `<div class="scratch-tile revealed"><span>${cell.emoji}</span><span style="font-size:11px;">+${formatCoins(cell.coins)}${cell.spins ? ` +${cell.spins}🎟️` : ''}</span></div>`
+                ? `<div class="scratch-tile revealed"><span>${cell.emoji}</span><span style="font-size:11px;">${cell.coins > 0 || cell.spins > 0 ? `+${formatCoins(cell.coins)}${cell.spins ? ` +${cell.spins}🎟️` : ''}` : 'Miss'}</span></div>`
                 : `<button class="scratch-tile" data-scratch="${idx}">❓ SCRATCH</button>`
             )
             .join('')}
         </div>
-        ${allDone ? `<button class="action-btn" id="btn-new-scratch">${scratchFree ? 'New Free Scratch Card' : `Buy New Card (🪙 ${formatCoins(SCRATCH_CARD_COST)})`}</button>` : ''}
+        ${allDone ? `<button class="action-btn" id="btn-new-scratch">Buy New Card (🪙 ${formatCoins(SCRATCH_CARD_COST)})</button>` : ''}
       </div>
 
       <div class="card">
-        <h3>🎲 Lucky Dice (Hot Streak)</h3>
-        <p>Roll <b>5 or higher</b> on 2 dice to win <b>1.45x</b> your bet!${effectiveDiceBet === 0 ? ' (Free recovery mode: win +15M!)' : ''}</p>
+        <h3>🎲 Lucky Dice (2x)</h3>
+        <p>Roll <b>8 or higher</b> on 2 dice to double your bet (<b>2x</b>)!</p>
         <div class="subtab-strip" style="max-width:100%;">
           ${diceBets
             .map(
@@ -2921,7 +3029,7 @@ class FairCoinSlotsApp {
             .join('')}
         </div>
         <button class="action-btn green" id="btn-roll-dice">
-          🎲 Roll Dice (${effectiveDiceBet > 0 ? `Bet ${formatCoins(effectiveDiceBet)} → ${formatCoins(Math.round(effectiveDiceBet * 1.45))}` : 'FREE Roll → +15M'})
+          🎲 Roll Dice (Bet ${formatCoins(this.diceBet)} → ${formatCoins(this.diceBet * 2)})
         </button>
       </div>
     `;
@@ -2932,22 +3040,28 @@ class FairCoinSlotsApp {
         const tile = this.scratchBoard[idx];
         if (!tile || tile.revealed) return;
         tile.revealed = true;
-        this.state.coins += tile.coins;
-        this.state.totalWon += tile.coins;
-        this.state.freeSpins += tile.spins;
+        if (tile.coins > 0 || tile.spins > 0) {
+          this.state.coins += tile.coins;
+          this.state.totalWon += tile.coins;
+          this.state.freeSpins += tile.spins;
+          this.sfx.playCoin();
+        } else {
+          this.sfx.playReelStop(0);
+        }
         incrementQuest(this.state, 'arcade', 1);
         saveGameState(this.state);
-        this.sfx.playCoin();
         this.renderHud();
         this.renderArcadeTab();
       });
     });
 
     body.querySelector('#btn-new-scratch')?.addEventListener('click', () => {
-      if (this.state.coins >= SCRATCH_CARD_COST) {
-        this.state.coins -= SCRATCH_CARD_COST;
-        saveGameState(this.state);
+      if (this.state.coins < SCRATCH_CARD_COST) {
+        this.openEmergencyRefillModal();
+        return;
       }
+      this.state.coins -= SCRATCH_CARD_COST;
+      saveGameState(this.state);
       this.resetScratchBoard();
       this.sfx.playTap();
       this.renderHud();
@@ -2963,34 +3077,35 @@ class FairCoinSlotsApp {
     });
 
     body.querySelector('#btn-roll-dice')?.addEventListener('click', () => {
-      const wager = this.state.coins >= this.diceBet ? this.diceBet : 0;
-      if (wager > 0) this.state.coins -= wager;
+      if (this.state.coins < this.diceBet) {
+        this.openEmergencyRefillModal();
+        return;
+      }
+      const wager = this.diceBet;
+      this.state.coins -= wager;
 
-      // Player-favored weighted dice (~82% win rate for sum >= 5)
-      const weightedDie = () => {
-        const r = Math.random();
-        if (r < 0.08) return 1;
-        if (r < 0.18) return 2;
-        if (r < 0.36) return 3;
-        if (r < 0.56) return 4;
-        if (r < 0.78) return 5;
-        return 6;
-      };
-      const d1 = weightedDie();
-      const d2 = weightedDie();
+      const won = Math.random() < 0.4;
+      let d1 = 1 + Math.floor(Math.random() * 6);
+      let d2 = 1 + Math.floor(Math.random() * 6);
+      for (let attempt = 0; attempt < 24; attempt++) {
+        const sum = d1 + d2;
+        if ((won && sum >= 8) || (!won && sum <= 7)) break;
+        d1 = 1 + Math.floor(Math.random() * 6);
+        d2 = 1 + Math.floor(Math.random() * 6);
+      }
       const sum = d1 + d2;
       incrementQuest(this.state, 'arcade', 1);
 
-      if (sum >= 5) {
-        const payout = wager > 0 ? Math.round(wager * 1.45) : 15_000_000;
+      if (sum >= 8) {
+        const payout = wager * 2;
         this.state.coins += payout;
         this.state.totalWon += payout;
         this.sfx.playBigWin();
-        this.spawnCoinShower(10);
+        this.spawnCoinShower(12);
         this.showToast(`🎲 ${d1} + ${d2} = ${sum}! Won +${formatCoins(payout)} coins!`);
       } else {
         this.sfx.playReelStop(0);
-        this.showToast(`🎲 ${d1} + ${d2} = ${sum}. Rare miss — roll again!`);
+        this.showToast(`🎲 ${d1} + ${d2} = ${sum} — try again!`);
       }
       saveGameState(this.state);
       this.renderHud();
@@ -5048,7 +5163,10 @@ class FairCoinSlotsApp {
   private renderWheelBody(body: HTMLElement): void {
     const now = Date.now();
     const halfLeft = Math.max(0, HALF_HOUR_MS - (now - this.state.lastHalfHourBonusAt));
-    const dailyLeft = Math.max(0, DAY_MS - (now - this.state.lastDailyAt));
+    syncMonthlyCalendarState(this.state);
+    const dailyClaimReady = canClaimDailyCalendarToday(this.state);
+    const claimedDaysCount = this.state.dailyClaimedDays.length;
+    const nextCalendarDay = Math.min(31, claimedDaysCount + 1);
     const outOfSpins = this.state.wheelSpins <= 0;
     const activeSim = this.state.simOfferProcessing;
     const vikingDef = VIKING_QUEST_STEPS[this.state.vikingStep] ?? VIKING_QUEST_STEPS[0];
@@ -5136,10 +5254,11 @@ class FairCoinSlotsApp {
       </div>
 
       <div class="card">
-        <h3>📅 Daily Reward (Streak: ${this.state.dailyStreak}d)</h3>
+        <h3>📅 31-Day Monthly Rewards (${claimedDaysCount}/31 • 🔥 ${this.state.dailyStreak}d)</h3>
+        <p style="font-size:12px;">Claim daily coins, spins, packs & weekly milestones up to the Day 31 Grand Monthly Jackpot!</p>
         <div style="display:flex;flex-direction:column;gap:8px;">
-          <button class="action-btn secondary" id="btn-daily" ${dailyLeft > 0 ? 'disabled' : ''}>
-            ${dailyLeft > 0 ? `Next in ${formatWait(dailyLeft)}` : `Claim Daily + 🎁 Chest`}
+          <button class="action-btn ${dailyClaimReady ? 'green' : 'secondary'}" id="btn-daily">
+            ${dailyClaimReady ? `🎁 Claim Day ${nextCalendarDay} Reward!` : `📅 Open 31-Day Calendar (${claimedDaysCount}/31)`}
           </button>
           <button class="action-btn" id="btn-streak-supercharge" style="font-size:12px;">
             ${streakBtnText}
@@ -5248,16 +5367,8 @@ class FairCoinSlotsApp {
       this.renderAll();
     });
     body.querySelector('#btn-daily')?.addEventListener('click', () => {
-      this.state.dailyStreak += 1;
-      const reward = (180_000_000 + this.state.dailyStreak * 50_000_000) * (this.state.fairPassActive ? 3 : 1);
-      this.state.coins += reward;
-      this.state.chests += 1;
-      this.state.lastDailyAt = Date.now();
-      saveGameState(this.state);
-      this.sfx.playBigWin();
-      this.spawnCoinShower(18);
-      this.showToast(`📅 Day ${this.state.dailyStreak} reward: +${formatCoins(reward)} & +1 Chest!`);
-      this.renderAll();
+      this.sfx.playTap();
+      this.openDailyCalendarModal();
     });
     body.querySelector('#btn-streak-supercharge')?.addEventListener('click', () => {
       this.handleSimOfferAction({
@@ -6183,7 +6294,9 @@ class FairCoinSlotsApp {
     backdrop.classList.remove('hidden');
 
     const renderInfo = () => {
-      const sessionMins = Math.floor((Date.now() - this.state.sessionStartAt) / 60_000);
+      const devDebugBtn = import.meta.env.DEV
+        ? `<button class="action-btn secondary" id="info-open-debug">🛠️ Debug Menu</button>`
+        : '';
       box.innerHTML = `
         <h2 style="margin:0;color:#ffd166;">🐷 Piggy Bank Slots</h2>
         <p style="margin:0;font-size:13px;line-height:1.5;color:#fff8f0;">
@@ -6191,31 +6304,22 @@ class FairCoinSlotsApp {
           <span style="color:#c7b8e8;">Spin slot machines, launch Lightning City Attacks & Coin King Piggy Heists, collect 135 Album Cards across 15 sets, customize 23 full-body mascots, and conquer 550+ Circular Cities with your Royal Club!</span>
         </p>
         <div style="background:rgba(255,255,255,0.06);border-radius:12px;padding:10px;font-size:12px;color:#c7b8e8;display:flex;flex-direction:column;gap:4px;">
-          <div>Session: <b>${sessionMins}m</b> • Break tip every <b>${this.state.reminderMinutes}m</b></div>
+          <div>World: <b>Lv.${this.state.villageLevel}</b> • Monthly Calendar: <b>${this.state.dailyClaimedDays.length}/31</b></div>
           <div>Spins: <b>${this.state.totalSpins}</b> • Won: <b>${formatCoinsFull(this.state.totalWon)}</b></div>
         </div>
         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-          <button class="action-btn secondary" id="info-toggle-reminder">Reminder: ${this.state.reminderMinutes}m</button>
-          <button class="action-btn secondary" id="info-open-debug">🛠️ Debug Menu</button>
+          ${devDebugBtn}
           <button class="action-btn pink" id="info-reset-game">Reset Progress</button>
         </div>
         <button class="action-btn green" id="info-close">Close</button>
       `;
 
-      box.querySelector('#info-toggle-reminder')?.addEventListener('click', () => {
-        const steps = [15, 30, 45, 60];
-        const next = steps[(steps.indexOf(this.state.reminderMinutes) + 1) % steps.length];
-        this.state.reminderMinutes = next;
-        this.sessionAlertShown = false;
-        saveGameState(this.state);
-        this.sfx.playTap();
-        renderInfo();
-      });
-
-      box.querySelector('#info-open-debug')?.addEventListener('click', () => {
-        this.sfx.playTap();
-        this.openDebugModal();
-      });
+      if (import.meta.env.DEV) {
+        box.querySelector('#info-open-debug')?.addEventListener('click', () => {
+          this.sfx.playTap();
+          this.openDebugModal();
+        });
+      }
 
       box.querySelector('#info-reset-game')?.addEventListener('click', () => this.performFullReset());
 
@@ -6729,17 +6833,331 @@ class FairCoinSlotsApp {
     });
   }
 
-  private claimRescueBonus(): void {
+  private formatDailyRewardSummary(reward: DailyCalendarReward): string {
+    const coinMult = this.state.fairPassActive ? 2 : 1;
+    const parts: string[] = [];
+    if (reward.coins > 0) parts.push(`🪙 ${formatCoins(reward.coins * coinMult)}${coinMult > 1 ? ' (2x VIP)' : ''}`);
+    if (reward.freeSpins > 0) parts.push(`🎟️ +${reward.freeSpins} Spins`);
+    if (reward.chests > 0) parts.push(`🎁 +${reward.chests} Chest${reward.chests > 1 ? 's' : ''}`);
+    if (reward.silverPacks > 0) parts.push(`🥈 +${reward.silverPacks} Silver`);
+    if (reward.goldPacks > 0) parts.push(`🥇 +${reward.goldPacks} Gold`);
+    if (reward.petTreats > 0) parts.push(`🍖 +${reward.petTreats} Treats`);
+    if (reward.gashaponTokens > 0) parts.push(`🫧 +${reward.gashaponTokens} Token${reward.gashaponTokens > 1 ? 's' : ''}`);
+    if (reward.jokerCards > 0) parts.push(`🃏 +${reward.jokerCards} Joker`);
+    if (reward.exclusiveMascotBonus) parts.push(`👑 Exclusive Mascot Bonus`);
+    return parts.join(' • ');
+  }
+
+  private claimDailyCalendarReward(reward: DailyCalendarReward): boolean {
+    if (!canClaimDailyCalendarToday(this.state)) return false;
+
+    let shieldAutoUsed = false;
+    if (isDailyStreakMissed(this.state)) {
+      if (!this.state.streakShieldUsedThisWeek && this.state.dailyStreak > 0) {
+        this.state.streakShieldUsedThisWeek = true;
+        shieldAutoUsed = true;
+      } else {
+        this.state.dailyStreak = 0;
+      }
+    }
+
+    this.state.dailyStreak += 1;
+    if (!this.state.dailyClaimedDays.includes(reward.day)) {
+      this.state.dailyClaimedDays = [...this.state.dailyClaimedDays, reward.day].sort((a, b) => a - b);
+    }
+    this.state.lastDailyClaimDate = getLocalDateKey();
+    this.state.lastDailyAt = Date.now();
+
+    const coinMult = this.state.fairPassActive ? 2 : 1;
+    const coinGain = reward.coins * coinMult;
+    this.state.coins += coinGain;
+    this.state.totalWon += coinGain;
+    this.state.freeSpins += reward.freeSpins;
+    this.state.chests += reward.chests;
+    this.state.silverPacks += reward.silverPacks;
+    this.state.goldPacks += reward.goldPacks;
+    this.state.petTreats += reward.petTreats;
+    this.state.gashaponTokens += reward.gashaponTokens;
+    this.state.jokerCards += reward.jokerCards;
+
+    let mascotMsg = '';
+    if (reward.exclusiveMascotBonus) {
+      const unowned = SHOP_ITEMS.filter(
+        (it) => it.priceCoins > 0 && (this.state.itemCounts[it.id] ?? 0) === 0
+      );
+      const target = unowned.length > 0 ? unowned[Math.floor(Math.random() * unowned.length)].id : undefined;
+      const drop = grantCollectibleShopItem(this.state, target);
+      if (drop.isDuplicate) {
+        this.state.duplicateStars += 25;
+      }
+      mascotMsg = ` + ${drop.item.emoji} ${drop.item.name}!`;
+    }
+
+    saveGameState(this.state);
+    if (reward.tier === 'grand' || reward.tier === 'milestone') {
+      this.sfx.playWorldComplete();
+      this.triggerScreenShake();
+      this.spawnCoinShower(reward.tier === 'grand' ? 32 : 22);
+      this.spawnCoinFountain(reward.tier === 'grand' ? 24 : 16);
+      this.spawnConfettiBurst(reward.tier === 'grand' ? 42 : 28);
+    } else {
+      this.sfx.playBigWin();
+      this.spawnCoinShower(16);
+      this.spawnConfettiBurst(20);
+    }
+
+    const shieldNote = shieldAutoUsed ? ' 🛡️ Streak Shield saved your streak!' : '';
+    this.showToast(`📅 Day ${reward.day} ${reward.title} claimed! ${this.formatDailyRewardSummary(reward)}${mascotMsg}${shieldNote}`);
+    this.renderAll();
+    return true;
+  }
+
+  private openDailyCalendarModal(): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    backdrop.classList.remove('hidden');
+
+    syncMonthlyCalendarState(this.state);
+    let inspectedDay = Math.min(31, this.state.dailyClaimedDays.length + 1);
+
+    const renderCalendar = () => {
+      syncMonthlyCalendarState(this.state);
+      const now = new Date();
+      const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      const claimedSet = new Set(this.state.dailyClaimedDays);
+      const claimedCount = this.state.dailyClaimedDays.length;
+      const nextDay = Math.min(31, claimedCount + 1);
+      const canClaim = canClaimDailyCalendarToday(this.state, now);
+      const streakMissed = isDailyStreakMissed(this.state, now);
+      const shieldReady = !this.state.streakShieldUsedThisWeek;
+      const nextReward = DAILY_CALENDAR_REWARDS[nextDay - 1] ?? DAILY_CALENDAR_REWARDS[0];
+      const inspectedReward = DAILY_CALENDAR_REWARDS[inspectedDay - 1] ?? nextReward;
+
+      const shieldBannerHtml =
+        streakMissed && this.state.dailyStreak > 0
+          ? shieldReady
+            ? `
+              <div class="cal-shield-banner alert">
+                <span>⚠️ Missed a day! Protect your <b>${this.state.dailyStreak}-day</b> streak with your free weekly shield.</span>
+                <button type="button" class="action-btn green cal-shield-btn" id="btn-use-streak-shield">🛡️ Use Free Shield</button>
+              </div>
+            `
+            : `
+              <div class="cal-shield-banner used">
+                <span>🛡️ Weekly Streak Shield already used this week — claiming today starts a fresh streak!</span>
+              </div>
+            `
+          : `
+            <div class="cal-shield-banner ${shieldReady ? 'ready' : 'used'}">
+              <span>🛡️ Free Weekly Streak Shield: <b>${shieldReady ? 'Ready (1/1)' : 'Used (resets Mon)'}</b></span>
+              <span>🔥 Streak: <b>${this.state.dailyStreak}d</b></span>
+            </div>
+          `;
+
+      box.classList.add('modal-box-wide');
+      box.innerHTML = `
+        <div class="cal-modal-header">
+          <div class="cal-title-col">
+            <h2>📅 31-Day Monthly Rewards</h2>
+            <small>${monthLabel} • Claimed <b>${claimedCount}/31</b> Days</small>
+          </div>
+          <button type="button" class="icon-btn" id="close-daily-calendar" aria-label="Close">✖</button>
+        </div>
+
+        ${shieldBannerHtml}
+
+        <div class="daily-cal-grid">
+          ${DAILY_CALENDAR_REWARDS.map((r) => {
+            const isClaimed = claimedSet.has(r.day);
+            const isClaimable = canClaim && r.day === nextDay;
+            const isSelected = r.day === inspectedDay;
+            const weekNum = r.tier === 'milestone' ? Math.round(r.day / 7) : 0;
+            const badgeHtml = isClaimed
+              ? `<span class="cal-badge claimed">✓</span>`
+              : isClaimable
+                ? `<span class="cal-badge claimable">CLAIM</span>`
+                : r.tier === 'grand'
+                  ? `<span class="cal-badge grand">JACKPOT</span>`
+                  : r.tier === 'milestone'
+                    ? `<span class="cal-badge milestone">WK ${weekNum}</span>`
+                    : '';
+
+            return `
+              <button
+                type="button"
+                class="daily-cal-cell ${r.tier} ${isClaimed ? 'claimed' : ''} ${isClaimable ? 'claimable' : ''} ${isSelected ? 'selected' : ''}"
+                data-cal-day="${r.day}"
+              >
+                <div class="cal-cell-top">
+                  <span class="cal-day-num">D${r.day}</span>
+                  ${badgeHtml}
+                </div>
+                <div class="cal-cell-ico">${r.emoji}</div>
+                <div class="cal-cell-lbl">${r.shortLabel}</div>
+              </button>
+            `;
+          }).join('')}
+        </div>
+
+        <div class="cal-preview-card ${inspectedReward.tier}">
+          <div class="cal-preview-title">
+            <span>${inspectedReward.emoji} Day ${inspectedReward.day}: <b>${inspectedReward.title}</b></span>
+            ${claimedSet.has(inspectedReward.day) ? '<span class="cal-preview-tag done">Claimed ✓</span>' : canClaim && inspectedReward.day === nextDay ? '<span class="cal-preview-tag ready">Ready Now!</span>' : ''}
+          </div>
+          <div class="cal-preview-loot">${this.formatDailyRewardSummary(inspectedReward)}</div>
+        </div>
+
+        <button
+          type="button"
+          class="action-btn ${canClaim ? 'green cal-claim-cta' : 'secondary'}"
+          id="btn-claim-daily-today"
+          ${!canClaim ? 'disabled' : ''}
+          style="width:100%;padding:11px;font-size:14px;"
+        >
+          ${
+            canClaim
+              ? `🎁 Claim Day ${nextDay} Reward (${nextReward.shortLabel})`
+              : claimedCount >= 31
+                ? '👑 All 31 Monthly Rewards Claimed!'
+                : '✅ Today’s Reward Claimed — Come Back Tomorrow!'
+          }
+        </button>
+      `;
+
+      box.querySelector('#close-daily-calendar')?.addEventListener('click', () => {
+        box.classList.remove('modal-box-wide');
+        backdrop.classList.add('hidden');
+        this.sfx.playTap();
+      });
+
+      box.querySelector('#btn-use-streak-shield')?.addEventListener('click', () => {
+        if (this.state.streakShieldUsedThisWeek) return;
+        this.state.streakShieldUsedThisWeek = true;
+        this.state.lastDailyClaimDate = getLocalDateKey(new Date(Date.now() - 86_400_000));
+        saveGameState(this.state);
+        this.sfx.playBigWin();
+        this.spawnConfettiBurst(18);
+        this.showToast(`🛡️ Weekly Streak Shield activated! Your ${this.state.dailyStreak}-day streak is protected!`);
+        renderCalendar();
+      });
+
+      box.querySelectorAll<HTMLButtonElement>('[data-cal-day]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const day = Number(btn.dataset.calDay);
+          if (!day || day < 1 || day > 31) return;
+          if (canClaim && day === nextDay) {
+            const reward = DAILY_CALENDAR_REWARDS[day - 1];
+            if (reward && this.claimDailyCalendarReward(reward)) {
+              inspectedDay = Math.min(31, this.state.dailyClaimedDays.length + 1);
+              renderCalendar();
+              return;
+            }
+          }
+          inspectedDay = day;
+          this.sfx.playTap();
+          renderCalendar();
+        });
+      });
+
+      box.querySelector('#btn-claim-daily-today')?.addEventListener('click', () => {
+        if (!canClaim) return;
+        if (this.claimDailyCalendarReward(nextReward)) {
+          inspectedDay = Math.min(31, this.state.dailyClaimedDays.length + 1);
+          renderCalendar();
+        }
+      });
+    };
+
+    renderCalendar();
+  }
+
+  private openEmergencyRefillModal(): void {
+    const backdrop = this.root.querySelector<HTMLElement>('#modal-backdrop')!;
+    const box = this.root.querySelector<HTMLElement>('#modal-box')!;
+    box.classList.remove('modal-box-wide');
+    backdrop.classList.remove('hidden');
+
     const econ = getWorldEconomyMultiplier(this.state.villageLevel);
     const bonus = Math.round(50_000_000 * econ);
-    this.state.coins += bonus;
-    this.state.rescueCount += 1;
-    saveGameState(this.state);
-    this.sfx.playBigWin();
-    this.spawnCoinShower(14);
-    this.spawnCoinFountain(12);
-    this.showToast(`🛟 Coin Rescue! +${formatCoins(bonus)} coins added!`);
-    this.renderAll();
+    const rem = this.getEmergencyRefillRemainingMs();
+    const canSmashPiggy = this.state.piggyBankCoins >= 10_000_000;
+    const dailyReady = canClaimDailyCalendarToday(this.state);
+
+    box.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+        <h2 style="margin:0;color:#ffd166;">🐷 Free Emergency Piggy Refill</h2>
+        <button type="button" class="icon-btn" id="close-emergency-refill" aria-label="Close">✖</button>
+      </div>
+      <div class="studio-piggy-hero emergency-refill-hero">
+        <div class="studio-piggy-big-ico">🐷🔨</div>
+        <div class="studio-piggy-amount">+🪙 ${formatCoins(bonus)}</div>
+        <div class="emergency-cooldown-pill">
+          <span>Refill Status:</span>
+          <strong id="emergency-refill-countdown">${rem > 0 ? this.formatMmSs(rem) : 'READY!'}</strong>
+        </div>
+        <small style="color:#fde68a;font-weight:800;">100% Free Coin Refill • Refreshes every 2 minutes</small>
+      </div>
+      <p style="margin:0;font-size:12px;color:#c7b8e8;line-height:1.45;">
+        Low on coins? Crack open your <b>Emergency Piggy Bank</b> for an instant free stack scaled to World <b>Lv.${this.state.villageLevel}</b>!
+      </p>
+      <button
+        type="button"
+        class="action-btn green"
+        id="btn-emergency-smash"
+        ${rem > 0 ? 'disabled' : ''}
+        style="width:100%;padding:12px;font-size:14px;"
+      >
+        ${rem > 0 ? `⏳ Refilling Piggy (${this.formatMmSs(rem)})...` : `🔨 Break Emergency Piggy (+${formatCoins(bonus)} FREE!)`}
+      </button>
+      ${
+        canSmashPiggy || dailyReady
+          ? `
+            <div class="emergency-alt-row">
+              ${
+                canSmashPiggy
+                  ? `<button type="button" class="action-btn secondary" id="btn-emergency-vault">🐷 Piggy Vault (${formatCoins(this.state.piggyBankCoins)})</button>`
+                  : ''
+              }
+              ${
+                dailyReady
+                  ? `<button type="button" class="action-btn" id="btn-emergency-daily">📅 Claim Daily Reward</button>`
+                  : ''
+              }
+            </div>
+          `
+          : ''
+      }
+    `;
+
+    box.querySelector('#close-emergency-refill')?.addEventListener('click', () => {
+      backdrop.classList.add('hidden');
+      this.sfx.playTap();
+    });
+
+    box.querySelector('#btn-emergency-smash')?.addEventListener('click', () => {
+      if (this.getEmergencyRefillRemainingMs() > 0) return;
+      this.state.coins += bonus;
+      this.state.rescueCount += 1;
+      this.state.lastEmergencyRefillAt = Date.now();
+      saveGameState(this.state);
+      this.sfx.playBigWin();
+      this.triggerScreenShake();
+      this.spawnCoinShower(18);
+      this.spawnCoinFountain(14);
+      backdrop.classList.add('hidden');
+      this.showToast(`🐷💥 Emergency Piggy Refill! +${formatCoins(bonus)} coins added!`);
+      this.renderAll();
+    });
+
+    box.querySelector('#btn-emergency-vault')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      this.openPiggyVaultModal();
+    });
+
+    box.querySelector('#btn-emergency-daily')?.addEventListener('click', () => {
+      this.sfx.playTap();
+      this.openDailyCalendarModal();
+    });
   }
 
   private spawnCoinShower(count: number): void {

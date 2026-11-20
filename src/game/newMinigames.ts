@@ -72,13 +72,14 @@ export class CrashRocketCanvas {
 
   launch(onMultTick: (m: number) => void, onCrash: (crashedAt: number) => void): void {
     if (this.destroyed || this.phase === 'flying') return;
-    // House-skewed crash distribution: ~9% instant bust (1.00 - 1.09), most bust 1.1x - 2.6x
-    const r = Math.random();
-    if (r < 0.09) {
-      this.crashAt = Number((1.0 + Math.random() * 0.08).toFixed(2));
+    // Calibrated crash curve (~40% reach 2.0x+, ~0.81 long-run RTP, with thrilling rare 10x-35x runs)
+    const u = Math.random();
+    if (u < 0.14) {
+      this.crashAt = Number((1.0 + Math.random() * 0.1).toFixed(2));
     } else {
-      const raw = 0.93 / Math.max(0.02, 1 - r);
-      this.crashAt = Number(Math.min(35, Math.max(1.09, raw)).toFixed(2));
+      const v = (u - 0.14) / 0.86;
+      const raw = 0.94 / Math.max(0.025, 1 - v);
+      this.crashAt = Number(Math.min(35, Math.max(1.11, raw)).toFixed(2));
     }
 
     this.phase = 'flying';

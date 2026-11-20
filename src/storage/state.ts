@@ -1,5 +1,10 @@
 import { Device } from '@capacitor/device';
 import {
+  daysBetweenDateKeys,
+  getIsoWeekKey,
+  getLocalDateKey,
+} from '../data/dailyCalendar';
+import {
   ClubFeedRequest,
   createInitialClubFeed,
   DEFAULT_FOX_FRIENDS,
@@ -68,6 +73,12 @@ export interface GameState {
   lastWheelSpinAt: number;
   lastDailyAt: number;
   dailyStreak: number;
+  dailyCalendarMonth: string;
+  dailyClaimedDays: number[];
+  lastDailyClaimDate: string | null;
+  streakShieldWeekKey: string;
+  streakShieldUsedThisWeek: boolean;
+  lastEmergencyRefillAt: number;
   fairPassActive: boolean;
   monthlySpentEur: number;
   passActivatedAt: number | null;
@@ -126,6 +137,33 @@ export function getCurrentMonthKey(d = new Date()): string {
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;
+}
+
+export function syncMonthlyCalendarState(state: GameState, now = new Date()): void {
+  const monthKey = getCurrentMonthKey(now);
+  const weekKey = getIsoWeekKey(now);
+  if (state.dailyCalendarMonth !== monthKey) {
+    state.dailyCalendarMonth = monthKey;
+    state.dailyClaimedDays = [];
+    state.lastDailyClaimDate = null;
+  }
+  if (state.streakShieldWeekKey !== weekKey) {
+    state.streakShieldWeekKey = weekKey;
+    state.streakShieldUsedThisWeek = false;
+  }
+}
+
+export function canClaimDailyCalendarToday(state: GameState, now = new Date()): boolean {
+  syncMonthlyCalendarState(state, now);
+  if (state.dailyClaimedDays.length >= 31) return false;
+  const todayKey = getLocalDateKey(now);
+  return state.lastDailyClaimDate !== todayKey;
+}
+
+export function isDailyStreakMissed(state: GameState, now = new Date()): boolean {
+  if (!state.lastDailyClaimDate) return false;
+  const diff = daysBetweenDateKeys(state.lastDailyClaimDate, getLocalDateKey(now));
+  return diff >= 2;
 }
 
 const STORAGE_KEY = 'fair_coin_slots_state_v2';
@@ -225,6 +263,12 @@ export function createInitialState(deviceId = generateFallbackDeviceId()): GameS
     lastWheelSpinAt: 0,
     lastDailyAt: 0,
     dailyStreak: 0,
+    dailyCalendarMonth: getCurrentMonthKey(),
+    dailyClaimedDays: [],
+    lastDailyClaimDate: null,
+    streakShieldWeekKey: getIsoWeekKey(),
+    streakShieldUsedThisWeek: false,
+    lastEmergencyRefillAt: 0,
     fairPassActive: false,
     monthlySpentEur: 0,
     passActivatedAt: null,
@@ -386,6 +430,20 @@ export function loadGameState(deviceId?: string): GameState {
     if (merged.lastPassMonthKey && merged.lastPassMonthKey !== currentMonth) {
       merged.fairPassActive = false;
     }
+    merged.dailyClaimedDays = Array.isArray(parsed.dailyClaimedDays)
+      ? Array.from(
+          new Set(
+            parsed.dailyClaimedDays.filter(
+              (n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 31
+            )
+          )
+        ).sort((a, b) => a - b)
+      : [];
+    merged.lastEmergencyRefillAt =
+      typeof parsed.lastEmergencyRefillAt === 'number' && Number.isFinite(parsed.lastEmergencyRefillAt)
+        ? parsed.lastEmergencyRefillAt
+        : 0;
+    syncMonthlyCalendarState(merged);
     return merged;
   } catch {
     return initial;

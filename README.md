@@ -1,17 +1,17 @@
-# Fair Coin Slots 🐷🎰
+# Piggy Bank Slots 🐷🎰
 
-Een vrolijke cartoon social slot- & coin-game gebouwd met TypeScript, Vite en Capacitor Android — ontworpen als **eerlijk, anti-verslavend en spotgoedkoop alternatief** voor uitbuitende casino-apps.
+A vibrant cartoon social slots, arcade, city-builder & collectibles game built with TypeScript, Vite, and Capacitor Android.
 
-## Belangrijkste onderdelen
-- **Cartoon Mascotte ("Penny het Geluksvarken")**: reageert live op spins, bonusgames en grote winsten.
-- **6 Gokkasten op Level Road**: *Gouden Varken*, *Tropische Piraat*, *Snoep Paleis*, *Farao's Schat*, *Ruimte Katten* en *Diamant Draak* (5x3, 20 winlijnen, Wilds, Scatters voor Gratis Spins, 4 Progressieve Jackpots).
-- **Muntengrijper Bonus (Hold & Spin)**: verzamel 5+ munten en draai respins om een heel 5x3 bord vol munten te pakken.
-- **Penny's Dorp**: bouw & upgrade 5 cartoongebouwen voor hogere blijvende winst-multipliers.
-- **Rad van Fortuin & Gratis Bonussen**: rad-draaien, halfuur-bonussen, dagelijkse reeksen en gratis Reddingsboei als je munten op zijn.
-- **Kaartenalbum & Missies**: open gratis schatkisten en maak kaartsets compleet voor miljarden aan speelmunten.
-- **Eerlijk Spel & €5 Bescherming**: een transparante simulatie van het €5/maand-model (500B munten + 3x bonussen en een harde €5/maand-limiet) zodat niemand honderden euro's kan verliezen. In deze losse APK wordt **geen echt geld verwerkt**.
+## Key Features
+- **3D Studio Slot Machines**: 5×3 themed slot cabinets with 20 paylines, Wilds, Scatters & Free Spins, 4 Progressive Jackpots, Hold & Spin Coin Grab, Lightning City Attacks, Coin King Piggy Heists, and City Shields.
+- **Golden Piggy Bank & Free Emergency Refill**: Every spin feeds your Golden Piggy Bank vault, plus a free Emergency Piggy Refill keeps you spinning whenever coins run low.
+- **31-Day Monthly Daily Rewards Calendar**: Full 31-day reward track with weekly milestones (Days 7, 14, 21, 28), 1 free weekly Streak Shield, and the Day 31 Grand Monthly Jackpot (+ Joker Card & Mascot Bonus).
+- **Arcade & Minigames**: Crash Rocket, Roulette, Hi-Lo, Keno, Gashapon, Plinko, Coin Dozer, Bomb Vault, Lucky Dice, Scratch Cards, Prize Wheel, and Viking Quest.
+- **550+ Circular Cities & Royal Club**: Build and upgrade 5-star landmarks across themed worlds, trade with friends, and complete Co-op Club Chests.
+- **135-Card Royal Album & 23 Full-Body Mascots**: Open Bronze, Silver & Gold card packs, craft with Duplicate Stars & Joker Cards, and customize 23 animated cartoon mascots with collectible outfits and pets.
+- **100% Virtual Coins (No Real-Money Gambling)**: All in-game packages and passes are simulated with virtual coins only — no real money is ever charged or processed.
 
-## Lokaal bouwen
+## Local Build
 ```bash
 npm install
 npm run build
@@ -19,4 +19,4 @@ npx cap sync android
 ```
 
 ## GitHub Actions
-Elke push naar `main` bouwt automatisch `app-debug.apk` en `app-release.aab` via `.github/workflows/android-build.yml`.
+Every push to `main` builds `app-debug.apk` and `app-release.aab` via `.github/workflows/android-build.yml` and publishes `PiggyBankSlots.apk` to GitHub Releases.

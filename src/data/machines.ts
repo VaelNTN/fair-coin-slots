@@ -684,14 +684,14 @@ export const VIKING_QUEST_STEPS: VikingStepDef[] = [
     title: 'Step 2: Stormy Crossing',
     kind: 'bet',
     costCoins: 150_000_000,
-    rewardLabel: 'Win +300M Coins + 2 Chests (70% Hit)',
+    rewardLabel: 'Win +300M Coins + 2 Chests',
   },
   {
     step: 2,
     title: 'Step 3: Berserker Trial',
     kind: 'bet',
     costCoins: 450_000_000,
-    rewardLabel: 'Win +900M Coins + 2 Gashapon Tokens (55% Hit)',
+    rewardLabel: 'Win +900M Coins + 2 Gashapon Tokens',
   },
   {
     step: 3,
@@ -707,7 +707,7 @@ export const VIKING_QUEST_STEPS: VikingStepDef[] = [
     title: 'Step 5: Kraken Wager',
     kind: 'bet',
     costCoins: 1_200_000_000,
-    rewardLabel: 'Win +2.5B Coins + 4 Chests (50% Hit)',
+    rewardLabel: 'Win +2.5B Coins + 4 Chests',
   },
   {
     step: 5,
@@ -727,5 +727,5 @@ export const ROULETTE_RED_NUMS = new Set<number>([
   1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36,
 ]);
 
-export const KENO_PAYOUTS = [0, 0, 0.7, 2.5, 8, 35];
+export const KENO_PAYOUTS = [0, 0, 0.7, 2.4, 8, 35];
 

@@ -90,9 +90,43 @@ export function evaluateRouletteBet(num: number, betType: RouletteBetType, stake
   return 0;
 }
 
+export function spinRouletteNumber(betType: RouletteBetType): number {
+  const allPockets = Array.from({ length: 37 }, (_, i) => i);
+  const winners = allPockets.filter((n) => evaluateRouletteBet(n, betType, 1) > 0);
+  const losers = allPockets.filter((n) => evaluateRouletteBet(n, betType, 1) === 0);
+  const winProb =
+    betType === 'zero'
+      ? 0.0225
+      : betType === 'dozen1' || betType === 'dozen2' || betType === 'dozen3'
+        ? 0.27
+        : 0.4;
+  const pool = Math.random() < winProb && winners.length > 0 ? winners : losers;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 export function drawKenoRound(picks: number[], bet: number, rhinoBoost: boolean): { drawn: number[]; hits: number[]; payout: number } {
-  const pool = Array.from({ length: 24 }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
-  const drawn = pool.slice(0, 8);
+  // Weighted draw without replacement (~40-42% paying rounds, ~0.80 long-run RTP)
+  const remaining = Array.from({ length: 24 }, (_, i) => i + 1);
+  const drawn: number[] = [];
+  for (let drawIdx = 0; drawIdx < 8; drawIdx++) {
+    let totalW = 0;
+    const weights = remaining.map((num) => {
+      const w = picks.includes(num) ? 0.78 : 1.08;
+      totalW += w;
+      return w;
+    });
+    let r = Math.random() * totalW;
+    let chosenIdx = remaining.length - 1;
+    for (let i = 0; i < remaining.length; i++) {
+      r -= weights[i];
+      if (r <= 0) {
+        chosenIdx = i;
+        break;
+      }
+    }
+    drawn.push(remaining[chosenIdx]);
+    remaining.splice(chosenIdx, 1);
+  }
   const hits = picks.filter((n) => drawn.includes(n));
   const mult = KENO_PAYOUTS[Math.min(KENO_PAYOUTS.length - 1, hits.length)] ?? 0;
   const boost = rhinoBoost ? 1.15 : 1;
@@ -125,14 +159,13 @@ export function drawRandomCard(): HiLoCard {
 }
 
 /**
- * Draws next Hi-Lo card:
- * Steps 0-1 feel player-friendly; step 2+ subtly increases house reversal risk so greedy streaks burn!
+ * Draws next Hi-Lo card with consistent silent ~60/40 house edge across streak steps.
  */
 export function drawHiLoOutcomeCard(currentRank: number, guess: 'high' | 'low', streak: number): { next: HiLoCard; won: boolean } {
-  const houseBustBias = streak >= 3 ? 0.58 : streak === 2 ? 0.48 : 0.34;
+  const houseBustBias = streak >= 3 ? 0.63 : streak === 2 ? 0.6 : streak === 1 ? 0.57 : 0.54;
   const wantBust = Math.random() < houseBustBias;
 
-  for (let attempt = 0; attempt < 18; attempt++) {
+  for (let attempt = 0; attempt < 22; attempt++) {
     const candidate = drawRandomCard();
     if (candidate.rank === currentRank) continue;
     const isHigher = candidate.rank > currentRank;
